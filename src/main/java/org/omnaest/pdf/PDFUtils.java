@@ -24,10 +24,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.pdfbox.multipdf.PDFMergerUtility;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -124,8 +126,7 @@ public class PDFUtils
 									FileUtils.copyInputStreamToFile(inputStream, pdfFile);
 								}
 							};
-						}
-						catch (Exception e)
+						} catch (Exception e)
 						{
 							LOG.error("Exception during pdf creation", e);
 						}
@@ -163,8 +164,7 @@ public class PDFUtils
 							{
 								this.addBlankPage();
 							}
-						}
-						catch (IOException e)
+						} catch (IOException e)
 						{
 							LOG.error("", e);
 						}
@@ -206,11 +206,29 @@ public class PDFUtils
 			ImageIO.write(bufferedImage, "JPG", bos);
 			bos.close();
 			retval = new ByteArrayInputStream(bos.toByteArray());
-		}
-		catch (Exception e)
+		} catch (Exception e)
 		{
 			LOG.error("Exception during pdf to image rendering", e);
 		}
 		return retval;
+	}
+
+	@SuppressWarnings("deprecation")
+	public static InputStream merge(Stream<InputStream> inputStreams)
+	{
+		PDFMergerUtility merger = new PDFMergerUtility();
+
+		inputStreams.forEach(source -> merger.addSource(source));
+		ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+		merger.setDestinationStream(byteArrayOutputStream);
+		try
+		{
+			merger.mergeDocuments();
+		} catch (IOException e)
+		{
+			throw new RuntimeException(e);
+		}
+
+		return new ByteArrayInputStream(byteArrayOutputStream.toByteArray());
 	}
 }
