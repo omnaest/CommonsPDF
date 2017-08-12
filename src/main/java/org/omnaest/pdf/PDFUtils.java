@@ -33,6 +33,8 @@ import org.apache.pdfbox.multipdf.PDFMergerUtility;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.rendering.PDFRenderer;
@@ -48,6 +50,8 @@ public class PDFUtils
 
 		PDFBuilder createEmptyPDF();
 
+		PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException;
+
 	}
 
 	public static interface PDFBuilderWithPage extends PDFBuilder
@@ -57,6 +61,9 @@ public class PDFUtils
 		PDFBuilderWithPage addTitle(String title);
 
 		PDFBuilderWithPage addSubTitle(String subTitle);
+
+		@Override
+		PDFBuilderWithPage getPage(int pageIndex);
 	}
 
 	public static interface PDFBuilder
@@ -65,6 +72,8 @@ public class PDFUtils
 		PDFWriter build();
 
 		PDFBuilderWithPage addBlankPage();
+
+		PDFBuilderWithPage getPage(int pageIndex);
 
 	}
 
@@ -75,6 +84,8 @@ public class PDFUtils
 
 		InputStream get();
 
+		byte[] getAsByteArray();
+
 	}
 
 	public static PDFLoader getPDFInstance()
@@ -84,9 +95,21 @@ public class PDFUtils
 			private PDDocument document = null;
 
 			@Override
+			public PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException
+			{
+				this.document = PDDocument.load(data);
+				return this.newPDFBuilderWithPage();
+			}
+
+			@Override
 			public PDFBuilder createEmptyPDF()
 			{
 				this.document = new PDDocument();
+				return this.newPDFBuilderWithPage();
+			}
+
+			private PDFBuilderWithPage newPDFBuilderWithPage()
+			{
 				return new PDFBuilderWithPage()
 				{
 					private PDPage	page;
@@ -102,6 +125,17 @@ public class PDFUtils
 					}
 
 					@Override
+					public PDFBuilderWithPage getPage(int pageIndex)
+					{
+						this.page = document.getPage(pageIndex);
+
+						PDRectangle rectangle = this.page.getBBox();
+
+						this.offset = (int) (rectangle.getHeight() - 50);
+						return this;
+					}
+
+					@Override
 					public PDFWriter build()
 					{
 						PDFWriter retval = null;
@@ -109,15 +143,23 @@ public class PDFUtils
 						{
 							ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 							document.save(outputStream);
+							document.close();
 							outputStream.close();
 
-							ByteArrayInputStream inputStream = new ByteArrayInputStream(outputStream.toByteArray());
+							byte[] data = outputStream.toByteArray();
+							ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
 							retval = new PDFWriter()
 							{
 								@Override
 								public InputStream get()
 								{
 									return inputStream;
+								}
+
+								@Override
+								public byte[] getAsByteArray()
+								{
+									return data;
 								}
 
 								@Override
@@ -147,7 +189,7 @@ public class PDFUtils
 					{
 						PDFont font = PDType1Font.HELVETICA_BOLD;
 
-						try (PDPageContentStream contents = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true))
+						try (PDPageContentStream contents = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true, true))
 						{
 							this.offset -= fontSize * 1.5;
 
