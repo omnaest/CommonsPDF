@@ -64,6 +64,8 @@ public class PDFUtils
 
 		@Override
 		PDFBuilderWithPage getPage(int pageIndex);
+
+		PDFBuilderWithPage addFooter(String footer);
 	}
 
 	public static interface PDFBuilder
@@ -129,10 +131,16 @@ public class PDFUtils
 					{
 						this.page = document.getPage(pageIndex);
 
-						PDRectangle rectangle = this.page.getBBox();
-
-						this.offset = (int) (rectangle.getHeight() - 50);
+						int height = this.determinePageHeight();
+						this.offset = height - 50;
 						return this;
+					}
+
+					private int determinePageHeight()
+					{
+						PDRectangle rectangle = this.page.getBBox();
+						int height = (int) rectangle.getHeight();
+						return height;
 					}
 
 					@Override
@@ -187,28 +195,31 @@ public class PDFUtils
 
 					private void addText(String text, int fontSize, double padding)
 					{
+						this.offset -= fontSize * 1.5;
+						this.addRawText(text, fontSize, this.offset);
+						this.offset -= padding;
+						if (this.offset < 60)
+						{
+							this.addBlankPage();
+						}
+					}
+
+					private void addRawText(String text, int fontSize, int offset)
+					{
 						PDFont font = PDType1Font.HELVETICA_BOLD;
 
 						try (PDPageContentStream contents = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true, true))
 						{
-							this.offset -= fontSize * 1.5;
-
 							contents.setLeading(1.5);
 							contents.beginText();
 							contents.setFont(font, fontSize);
-							contents.newLineAtOffset(60, this.offset);
+							contents.newLineAtOffset(60, offset);
 							contents.showText(text);
 							contents.endText();
 
-							this.offset -= padding;
-
-							if (this.offset < 60)
-							{
-								this.addBlankPage();
-							}
 						} catch (IOException e)
 						{
-							LOG.error("", e);
+							LOG.error("Exception defining text", e);
 						}
 					}
 
@@ -223,6 +234,15 @@ public class PDFUtils
 					public PDFBuilderWithPage addSubTitle(String subTitle)
 					{
 						this.addText(subTitle, 8, 6);
+						return this;
+					}
+
+					@Override
+					public PDFBuilderWithPage addFooter(String footer)
+					{
+						int offset = 50;
+						int fontSize = 6;
+						this.addRawText(footer, fontSize, offset);
 						return this;
 					}
 				};

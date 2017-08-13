@@ -34,6 +34,7 @@ public class PDFUtilsTest
 				.addTitle("Titel")
 				.addText("Dies ist ein Test")
 				.addText("Weitere Zeile")
+				.addFooter("Footer text")
 				.addBlankPage()
 				.addTitle("Titel2")
 				.addText("Dies ist ein Test")
