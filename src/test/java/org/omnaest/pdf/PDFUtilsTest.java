@@ -20,12 +20,14 @@ package org.omnaest.pdf;
 
 import java.io.File;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class PDFUtilsTest
 {
 
 	@Test
+	@Ignore
 	public void testGetPDFInstance() throws Exception
 	{
 		PDFUtils.getPDFInstance()
@@ -40,6 +42,25 @@ public class PDFUtilsTest
 				.addText("Dies ist ein Test")
 				.build()
 				.write(new File("C:/Temp/test.pdf"));
+	}
+
+	@Test
+	public void testAddFurtherPDF() throws Exception
+	{
+		byte[] furtherPDF = PDFUtils.getPDFInstance()
+									.createEmptyPDF()
+									.addBlankPage()
+									.addTitle("Further PDF title")
+									.build()
+									.getAsByteArray();
+
+		PDFUtils.getPDFInstance()
+				.createEmptyPDF()
+				.addBlankPage()
+				.addTitle("Titel of main pdf")
+				.addPagesOfFurtherPDF(furtherPDF)
+				.build()
+				.write(new File("C:/Temp/test_add_further.pdf"));
 	}
 
 }

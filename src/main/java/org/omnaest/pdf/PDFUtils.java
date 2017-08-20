@@ -24,6 +24,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
@@ -66,6 +68,7 @@ public class PDFUtils
 		PDFBuilderWithPage getPage(int pageIndex);
 
 		PDFBuilderWithPage addFooter(String footer);
+
 	}
 
 	public static interface PDFBuilder
@@ -76,6 +79,8 @@ public class PDFUtils
 		PDFBuilderWithPage addBlankPage();
 
 		PDFBuilderWithPage getPage(int pageIndex);
+
+		PDFBuilder addPagesOfFurtherPDF(byte[] pdf) throws InvalidPasswordException, IOException;
 
 	}
 
@@ -117,6 +122,8 @@ public class PDFUtils
 					private PDPage	page;
 					private int		offset	= 0;
 
+					private List<PDDocument> addedSourceDocuments = new ArrayList<>();
+
 					@Override
 					public PDFBuilderWithPage addBlankPage()
 					{
@@ -154,6 +161,8 @@ public class PDFUtils
 							document.close();
 							outputStream.close();
 
+							closeFurtherDocuments();
+
 							byte[] data = outputStream.toByteArray();
 							ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
 							retval = new PDFWriter()
@@ -176,11 +185,26 @@ public class PDFUtils
 									FileUtils.copyInputStreamToFile(inputStream, pdfFile);
 								}
 							};
-						} catch (Exception e)
+						}
+						catch (Exception e)
 						{
 							LOG.error("Exception during pdf creation", e);
 						}
 						return retval;
+					}
+
+					private void closeFurtherDocuments()
+					{
+						this.addedSourceDocuments.forEach(furtherDocumentSource ->
+						{
+							try
+							{
+								furtherDocumentSource.close();
+							}
+							catch (IOException e)
+							{
+							}
+						});
 					}
 
 					@Override
@@ -217,7 +241,8 @@ public class PDFUtils
 							contents.showText(text);
 							contents.endText();
 
-						} catch (IOException e)
+						}
+						catch (IOException e)
 						{
 							LOG.error("Exception defining text", e);
 						}
@@ -245,6 +270,22 @@ public class PDFUtils
 						this.addRawText(footer, fontSize, offset);
 						return this;
 					}
+
+					@Override
+					public PDFBuilder addPagesOfFurtherPDF(byte[] pdf) throws InvalidPasswordException, IOException
+					{
+						PDDocument furtherDocument = PDDocument.load(pdf);
+
+						furtherDocument	.getPages()
+										.forEach(page ->
+										{
+											document.addPage(page);
+										});
+
+						this.addedSourceDocuments.add(furtherDocument);
+
+						return this;
+					}
 				};
 			}
 		};
@@ -268,7 +309,8 @@ public class PDFUtils
 			ImageIO.write(bufferedImage, "JPG", bos);
 			bos.close();
 			retval = new ByteArrayInputStream(bos.toByteArray());
-		} catch (Exception e)
+		}
+		catch (Exception e)
 		{
 			LOG.error("Exception during pdf to image rendering", e);
 		}
@@ -286,7 +328,8 @@ public class PDFUtils
 		try
 		{
 			merger.mergeDocuments();
-		} catch (IOException e)
+		}
+		catch (IOException e)
 		{
 			throw new RuntimeException(e);
 		}
