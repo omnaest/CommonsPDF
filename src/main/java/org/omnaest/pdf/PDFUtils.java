@@ -56,9 +56,35 @@ public class PDFUtils
 
 	}
 
+	public static interface TextSizeProvider
+	{
+		public int getSize();
+	}
+
+	public enum TextSize implements TextSizeProvider
+	{
+		LARGE(16), NORMAL(12), SMALL(8), VERY_SMALL(6);
+
+		private int size;
+
+		private TextSize(int size)
+		{
+			this.size = size;
+		}
+
+		@Override
+		public int getSize()
+		{
+			return this.size;
+		}
+
+	}
+
 	public static interface PDFBuilderWithPage extends PDFBuilder
 	{
 		PDFBuilderWithPage addText(String text);
+
+		PDFBuilderWithPage addText(TextSizeProvider textSize, String text);
 
 		PDFBuilderWithPage addTitle(String title);
 
@@ -161,7 +187,7 @@ public class PDFUtils
 							document.close();
 							outputStream.close();
 
-							closeFurtherDocuments();
+							this.closeFurtherDocuments();
 
 							byte[] data = outputStream.toByteArray();
 							ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
@@ -210,7 +236,13 @@ public class PDFUtils
 					@Override
 					public PDFBuilderWithPage addText(String text)
 					{
-						int fontSize = 12;
+						return this.addText(TextSize.NORMAL, text);
+					}
+
+					@Override
+					public PDFBuilderWithPage addText(TextSizeProvider textSize, String text)
+					{
+						int fontSize = textSize.getSize();
 
 						this.addText(text, fontSize, 0);
 
