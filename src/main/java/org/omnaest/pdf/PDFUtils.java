@@ -25,7 +25,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
@@ -40,6 +42,7 @@ import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.rendering.PDFRenderer;
+import org.omnaest.utils.SimpleExceptionHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,6 +74,11 @@ public class PDFUtils
 
 	}
 
+	public static interface PageProcessor
+	{
+		public void process(Stream<PDFBuilderWithPage> pages);
+	}
+
 	public static interface PDFBuilder
 	{
 
@@ -82,12 +90,40 @@ public class PDFUtils
 
 		PDFBuilder addPagesOfFurtherPDF(byte[] pdf) throws InvalidPasswordException, IOException;
 
+		PDFBuilder addPagesOfFurtherPDF(byte[] pdf, SimpleExceptionHandler exceptionHandler);
+
+		PDFBuilder addPagesOfFurtherPDFSilently(byte[] pdf);
+
+		PDFBuilder addPagesOfFurtherPDFSilently(Collection<byte[]> pdfs);
+
+		PDFBuilder processPages(PageProcessor processor);
+
 	}
 
 	public static interface PDFWriter
 	{
-
+		/**
+		 * Writing the pdf to {@link File}
+		 * 
+		 * @param pdfFile
+		 * @throws IOException
+		 */
 		void write(File pdfFile) throws IOException;
+
+		/**
+		 * Similar to {@link #write(File)} but using the given {@link SimpleExceptionHandler} for handling {@link Exception}s
+		 * 
+		 * @param pdfFile
+		 * @param handler
+		 */
+		void write(File pdfFile, SimpleExceptionHandler handler);
+
+		/**
+		 * Similar to {@link #write(File)} without throwing an {@link IOException}
+		 * 
+		 * @param pdfFile
+		 */
+		void writeSilently(File pdfFile);
 
 		InputStream get();
 
@@ -161,7 +197,7 @@ public class PDFUtils
 							document.close();
 							outputStream.close();
 
-							closeFurtherDocuments();
+							this.closeFurtherDocuments();
 
 							byte[] data = outputStream.toByteArray();
 							ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
@@ -184,9 +220,31 @@ public class PDFUtils
 								{
 									FileUtils.copyInputStreamToFile(inputStream, pdfFile);
 								}
+
+								@Override
+								public void writeSilently(File pdfFile)
+								{
+									SimpleExceptionHandler handler = null;
+									this.write(pdfFile, handler);
+								}
+
+								@Override
+								public void write(File pdfFile, SimpleExceptionHandler handler)
+								{
+									try
+									{
+										this.write(pdfFile);
+									} catch (IOException e)
+									{
+										if (handler != null)
+										{
+											handler.handle(e);
+										}
+									}
+
+								}
 							};
-						}
-						catch (Exception e)
+						} catch (Exception e)
 						{
 							LOG.error("Exception during pdf creation", e);
 						}
@@ -200,8 +258,7 @@ public class PDFUtils
 							try
 							{
 								furtherDocumentSource.close();
-							}
-							catch (IOException e)
+							} catch (IOException e)
 							{
 							}
 						});
@@ -241,8 +298,7 @@ public class PDFUtils
 							contents.showText(text);
 							contents.endText();
 
-						}
-						catch (IOException e)
+						} catch (IOException e)
 						{
 							LOG.error("Exception defining text", e);
 						}
@@ -286,6 +342,49 @@ public class PDFUtils
 
 						return this;
 					}
+
+					@Override
+					public PDFBuilder addPagesOfFurtherPDFSilently(Collection<byte[]> pdfs)
+					{
+						if (pdfs != null)
+						{
+							pdfs.forEach(pdf -> this.addPagesOfFurtherPDFSilently(pdf));
+						}
+						return this;
+					}
+
+					@Override
+					public PDFBuilder addPagesOfFurtherPDFSilently(byte[] pdf)
+					{
+						SimpleExceptionHandler exceptionHandler = null;
+						this.addPagesOfFurtherPDF(pdf, exceptionHandler);
+						return this;
+					}
+
+					@Override
+					public PDFBuilder addPagesOfFurtherPDF(byte[] pdf, SimpleExceptionHandler exceptionHandler)
+					{
+						try
+						{
+							this.addPagesOfFurtherPDF(pdf);
+						} catch (Exception e)
+						{
+							if (exceptionHandler != null)
+							{
+								exceptionHandler.handle(e);
+							}
+						}
+						return this;
+					}
+
+					@Override
+					public PDFBuilder processPages(PageProcessor processor)
+					{
+						processor.process(IntStream	.range(0, document.getNumberOfPages())
+
+													.mapToObj(pageIndex -> this.getPage(pageIndex)));
+						return this;
+					}
 				};
 			}
 		};
@@ -309,8 +408,7 @@ public class PDFUtils
 			ImageIO.write(bufferedImage, "JPG", bos);
 			bos.close();
 			retval = new ByteArrayInputStream(bos.toByteArray());
-		}
-		catch (Exception e)
+		} catch (Exception e)
 		{
 			LOG.error("Exception during pdf to image rendering", e);
 		}
@@ -328,8 +426,7 @@ public class PDFUtils
 		try
 		{
 			merger.mergeDocuments();
-		}
-		catch (IOException e)
+		} catch (IOException e)
 		{
 			throw new RuntimeException(e);
 		}
