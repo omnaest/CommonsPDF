@@ -83,6 +83,11 @@ public class PDFUtils
 
 	}
 
+	public static interface ElementProcessor<E>
+	{
+		public void handle(PDFBuilderWithPage page, E element);
+	}
+
 	public static interface PDFBuilderWithPage extends PDFBuilder
 	{
 		PDFBuilderWithPage addText(String text);
@@ -97,6 +102,8 @@ public class PDFUtils
 		PDFBuilderWithPage getPage(int pageIndex);
 
 		PDFBuilderWithPage addFooter(String footer);
+
+		<E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor);
 
 	}
 
@@ -415,6 +422,16 @@ public class PDFUtils
 						processor.process(IntStream	.range(0, document.getNumberOfPages())
 
 													.mapToObj(pageIndex -> this.getPage(pageIndex)));
+						return this;
+					}
+
+					@Override
+					public <E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor)
+					{
+						if (elements != null && processor != null)
+						{
+							elements.forEach(element -> processor.handle(this, element));
+						}
 						return this;
 					}
 				};
