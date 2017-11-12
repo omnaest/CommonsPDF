@@ -101,6 +101,8 @@ public class PDFUtils
 		@Override
 		PDFBuilderWithPage getPage(int pageIndex);
 
+		PDFBuilderWithPage getLastPage();
+
 		PDFBuilderWithPage addFooter(String footer);
 
 		<E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor);
@@ -137,7 +139,7 @@ public class PDFUtils
 	{
 		/**
 		 * Writing the pdf to {@link File}
-		 * 
+		 *
 		 * @param pdfFile
 		 * @throws IOException
 		 */
@@ -145,7 +147,7 @@ public class PDFUtils
 
 		/**
 		 * Similar to {@link #write(File)} but using the given {@link SimpleExceptionHandler} for handling {@link Exception}s
-		 * 
+		 *
 		 * @param pdfFile
 		 * @param handler
 		 */
@@ -153,7 +155,7 @@ public class PDFUtils
 
 		/**
 		 * Similar to {@link #write(File)} without throwing an {@link IOException}
-		 * 
+		 *
 		 * @param pdfFile
 		 */
 		void writeSilently(File pdfFile);
@@ -212,6 +214,14 @@ public class PDFUtils
 						return this;
 					}
 
+					@Override
+					public PDFBuilderWithPage getLastPage()
+					{
+						return this.getPage(document.getPages()
+													.getCount()
+								- 1);
+					}
+
 					private int determinePageHeight()
 					{
 						PDRectangle rectangle = this.page.getBBox();
@@ -267,7 +277,8 @@ public class PDFUtils
 									try
 									{
 										this.write(pdfFile);
-									} catch (IOException e)
+									}
+									catch (IOException e)
 									{
 										if (handler != null)
 										{
@@ -277,7 +288,8 @@ public class PDFUtils
 
 								}
 							};
-						} catch (Exception e)
+						}
+						catch (Exception e)
 						{
 							LOG.error("Exception during pdf creation", e);
 						}
@@ -291,7 +303,8 @@ public class PDFUtils
 							try
 							{
 								furtherDocumentSource.close();
-							} catch (IOException e)
+							}
+							catch (IOException e)
 							{
 							}
 						});
@@ -337,7 +350,8 @@ public class PDFUtils
 							contents.showText(text);
 							contents.endText();
 
-						} catch (IOException e)
+						}
+						catch (IOException e)
 						{
 							LOG.error("Exception defining text", e);
 						}
@@ -406,7 +420,8 @@ public class PDFUtils
 						try
 						{
 							this.addPagesOfFurtherPDF(pdf);
-						} catch (Exception e)
+						}
+						catch (Exception e)
 						{
 							if (exceptionHandler != null)
 							{
@@ -457,7 +472,8 @@ public class PDFUtils
 			ImageIO.write(bufferedImage, "JPG", bos);
 			bos.close();
 			retval = new ByteArrayInputStream(bos.toByteArray());
-		} catch (Exception e)
+		}
+		catch (Exception e)
 		{
 			LOG.error("Exception during pdf to image rendering", e);
 		}
@@ -475,7 +491,8 @@ public class PDFUtils
 		try
 		{
 			merger.mergeDocuments();
-		} catch (IOException e)
+		}
+		catch (IOException e)
 		{
 			throw new RuntimeException(e);
 		}
