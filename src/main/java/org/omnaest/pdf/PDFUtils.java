@@ -119,6 +119,11 @@ public class PDFUtils
 
 		PDFWriter build();
 
+		/**
+		 * Adds a blank page to the pdf
+		 * 
+		 * @return
+		 */
 		PDFBuilderWithPage addBlankPage();
 
 		PDFBuilderWithPage getPage(int pageIndex);
@@ -277,8 +282,7 @@ public class PDFUtils
 									try
 									{
 										this.write(pdfFile);
-									}
-									catch (IOException e)
+									} catch (IOException e)
 									{
 										if (handler != null)
 										{
@@ -288,8 +292,7 @@ public class PDFUtils
 
 								}
 							};
-						}
-						catch (Exception e)
+						} catch (Exception e)
 						{
 							LOG.error("Exception during pdf creation", e);
 						}
@@ -303,8 +306,7 @@ public class PDFUtils
 							try
 							{
 								furtherDocumentSource.close();
-							}
-							catch (IOException e)
+							} catch (IOException e)
 							{
 							}
 						});
@@ -350,8 +352,7 @@ public class PDFUtils
 							contents.showText(text);
 							contents.endText();
 
-						}
-						catch (IOException e)
+						} catch (IOException e)
 						{
 							LOG.error("Exception defining text", e);
 						}
@@ -420,8 +421,7 @@ public class PDFUtils
 						try
 						{
 							this.addPagesOfFurtherPDF(pdf);
-						}
-						catch (Exception e)
+						} catch (Exception e)
 						{
 							if (exceptionHandler != null)
 							{
@@ -472,8 +472,7 @@ public class PDFUtils
 			ImageIO.write(bufferedImage, "JPG", bos);
 			bos.close();
 			retval = new ByteArrayInputStream(bos.toByteArray());
-		}
-		catch (Exception e)
+		} catch (Exception e)
 		{
 			LOG.error("Exception during pdf to image rendering", e);
 		}
@@ -491,8 +490,7 @@ public class PDFUtils
 		try
 		{
 			merger.mergeDocuments();
-		}
-		catch (IOException e)
+		} catch (IOException e)
 		{
 			throw new RuntimeException(e);
 		}
