@@ -375,7 +375,7 @@ public class PDFUtils
 					@Override
 					public PDFBuilderWithPage addFooter(String footer)
 					{
-						int offset = 50;
+						int offset = 40;
 						int fontSize = 6;
 						this.addRawText(footer, fontSize, offset);
 						return this;
