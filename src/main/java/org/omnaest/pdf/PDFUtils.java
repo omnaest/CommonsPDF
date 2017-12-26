@@ -105,6 +105,8 @@ public class PDFUtils
 
 		PDFBuilderWithPage addFooter(String footer);
 
+		PDFBuilderWithPage addFooter(String... footers);
+
 		<E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor);
 
 	}
@@ -196,7 +198,8 @@ public class PDFUtils
 				return new PDFBuilderWithPage()
 				{
 					private PDPage	page;
-					private int		offset	= 0;
+					private int		offset			= 0;
+					private int		footerOffset	= 0;
 
 					private List<PDDocument> addedSourceDocuments = new ArrayList<>();
 
@@ -205,6 +208,7 @@ public class PDFUtils
 					{
 						this.page = new PDPage();
 						this.offset = 760;
+						this.footerOffset = 0;
 						document.addPage(this.page);
 						return this;
 					}
@@ -375,9 +379,25 @@ public class PDFUtils
 					@Override
 					public PDFBuilderWithPage addFooter(String footer)
 					{
-						int offset = 40;
+						int offset = 40 - this.footerOffset;
 						int fontSize = 6;
 						this.addRawText(footer, fontSize, offset);
+
+						this.footerOffset += fontSize * 1.5;
+
+						return this;
+					}
+
+					@Override
+					public PDFBuilderWithPage addFooter(String... footers)
+					{
+						if (footers != null)
+						{
+							for (String footer : footers)
+							{
+								this.addFooter(footer);
+							}
+						}
 						return this;
 					}
 
