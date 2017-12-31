@@ -90,9 +90,54 @@ public class PDFUtils
 
     public static interface PDFBuilderWithPage extends PDFBuilder
     {
+        /**
+         * Adds a text to the page
+         * 
+         * @param text
+         * @return
+         */
         PDFBuilderWithPage addText(String text);
 
+        /**
+         * Adds a text with the given {@link TextSize} to the page
+         * 
+         * @param textSize
+         * @param text
+         * @return
+         */
         PDFBuilderWithPage addText(TextSizeProvider textSize, String text);
+
+        /**
+         * Adds all {@link String}s from the given {@link Iterable} to the page as texts, each on a new line
+         * 
+         * @param texts
+         * @return
+         */
+        PDFBuilderWithPage addText(Iterable<String> texts);
+
+        /**
+         * Similar to {@link #addText(Iterable)} but allows to specify the {@link TextSize}
+         * 
+         * @param textSize
+         * @param texts
+         * @return
+         */
+        PDFBuilderWithPage addText(TextSizeProvider textSize, Iterable<String> texts);
+
+        /**
+         * Similar to {@link #addBlankTextLine()} with {@link TextSize#NORMAL}
+         * 
+         * @return
+         */
+        PDFBuilderWithPage addBlankTextLine();
+
+        /**
+         * Adds a blank text line with the given {@link TextSize}
+         * 
+         * @param textSize
+         * @return
+         */
+        PDFBuilderWithPage addBlankTextLine(TextSizeProvider textSize);
 
         PDFBuilderWithPage addTitle(String title);
 
@@ -101,10 +146,27 @@ public class PDFUtils
         @Override
         PDFBuilderWithPage getPage(int pageIndex);
 
+        /**
+         * Returns the last page
+         * 
+         * @return
+         */
         PDFBuilderWithPage getLastPage();
 
+        /**
+         * Adds a footer to the page
+         * 
+         * @param footer
+         * @return
+         */
         PDFBuilderWithPage addFooter(String footer);
 
+        /**
+         * Adds one or more footers to the page
+         * 
+         * @param footers
+         * @return
+         */
         PDFBuilderWithPage addFooter(String... footers);
 
         <E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor);
@@ -207,10 +269,15 @@ public class PDFUtils
                     public PDFBuilderWithPage addBlankPage()
                     {
                         this.page = new PDPage();
-                        this.offset = 760;
-                        this.footerOffset = 0;
+                        this.resetTextOffsets();
                         document.addPage(this.page);
                         return this;
+                    }
+
+                    private void resetTextOffsets()
+                    {
+                        this.offset = 760;
+                        this.footerOffset = 0;
                     }
 
                     @Override
@@ -226,6 +293,7 @@ public class PDFUtils
                     @Override
                     public PDFBuilderWithPage getLastPage()
                     {
+                        this.resetTextOffsets();
                         return this.getPage(document.getPages()
                                                     .getCount()
                                 - 1);
@@ -286,7 +354,8 @@ public class PDFUtils
                                     try
                                     {
                                         this.write(pdfFile);
-                                    } catch (IOException e)
+                                    }
+                                    catch (IOException e)
                                     {
                                         if (handler != null)
                                         {
@@ -296,7 +365,8 @@ public class PDFUtils
 
                                 }
                             };
-                        } catch (Exception e)
+                        }
+                        catch (Exception e)
                         {
                             LOG.error("Exception during pdf creation", e);
                         }
@@ -310,7 +380,8 @@ public class PDFUtils
                             try
                             {
                                 furtherDocumentSource.close();
-                            } catch (IOException e)
+                            }
+                            catch (IOException e)
                             {
                             }
                         });
@@ -356,10 +427,44 @@ public class PDFUtils
                             contents.showText(text);
                             contents.endText();
 
-                        } catch (IOException e)
+                        }
+                        catch (IOException e)
                         {
                             LOG.error("Exception defining text", e);
                         }
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addText(Iterable<String> texts)
+                    {
+                        if (texts != null)
+                        {
+                            texts.forEach(this::addText);
+                        }
+                        return this;
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addText(TextSizeProvider textSize, Iterable<String> texts)
+                    {
+                        if (texts != null)
+                        {
+                            texts.forEach(text -> this.addText(textSize, text));
+                        }
+                        return this;
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addBlankTextLine()
+                    {
+                        return this.addBlankTextLine(TextSize.NORMAL);
+
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addBlankTextLine(TextSizeProvider textSize)
+                    {
+                        return this.addText(textSize, "");
                     }
 
                     @Override
@@ -441,7 +546,8 @@ public class PDFUtils
                         try
                         {
                             this.addPagesOfFurtherPDF(pdf);
-                        } catch (Exception e)
+                        }
+                        catch (Exception e)
                         {
                             if (exceptionHandler != null)
                             {
@@ -492,7 +598,8 @@ public class PDFUtils
             ImageIO.write(bufferedImage, "JPG", bos);
             bos.close();
             retval = new ByteArrayInputStream(bos.toByteArray());
-        } catch (Exception e)
+        }
+        catch (Exception e)
         {
             LOG.error("Exception during pdf to image rendering", e);
         }
@@ -510,7 +617,8 @@ public class PDFUtils
         try
         {
             merger.mergeDocuments();
-        } catch (IOException e)
+        }
+        catch (IOException e)
         {
             throw new RuntimeException(e);
         }
