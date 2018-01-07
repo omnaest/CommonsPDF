@@ -42,7 +42,9 @@ import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.rendering.PDFRenderer;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.omnaest.utils.SimpleExceptionHandler;
+import org.omnaest.utils.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +58,8 @@ public class PDFUtils
         PDFBuilder createEmptyPDF();
 
         PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException;
+
+        PDFBuilder loadPDF(File file) throws InvalidPasswordException, IOException;
 
     }
 
@@ -233,6 +237,8 @@ public class PDFUtils
 
         byte[] getAsByteArray();
 
+        Stream<String> getAsTextLines();
+
     }
 
     public static PDFLoader getPDFInstance()
@@ -245,7 +251,14 @@ public class PDFUtils
             public PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException
             {
                 this.document = PDDocument.load(data);
+                this.document.setAllSecurityToBeRemoved(true);
                 return this.newPDFBuilderWithPage();
+            }
+
+            @Override
+            public PDFBuilder loadPDF(File file) throws InvalidPasswordException, IOException
+            {
+                return this.loadPDF(FileUtils.readFileToByteArray(file));
             }
 
             @Override
@@ -333,6 +346,23 @@ public class PDFUtils
                                 public byte[] getAsByteArray()
                                 {
                                     return data;
+                                }
+
+                                @Override
+                                public Stream<String> getAsTextLines()
+                                {
+                                    try
+                                    {
+                                        PDFTextStripper stripper = new PDFTextStripper();
+                                        stripper.setAddMoreFormatting(true);
+                                        PDDocument pdDocument = PDDocument.load(data);
+                                        pdDocument.setAllSecurityToBeRemoved(true);
+                                        return StringUtils.splitToStreamByLineSeparator(stripper.getText(pdDocument));
+                                    }
+                                    catch (IOException e)
+                                    {
+                                        throw new IllegalStateException(e);
+                                    }
                                 }
 
                                 @Override
