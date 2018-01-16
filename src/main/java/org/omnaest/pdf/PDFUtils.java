@@ -27,6 +27,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -175,6 +176,8 @@ public class PDFUtils
 
         <E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor);
 
+        PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener);
+
     }
 
     public static interface PageProcessor
@@ -276,21 +279,35 @@ public class PDFUtils
                     private int    offset       = 0;
                     private int    footerOffset = 0;
 
-                    private List<PDDocument> addedSourceDocuments = new ArrayList<>();
+                    private List<PDDocument>                   addedSourceDocuments = new ArrayList<>();
+                    private List<Consumer<PDFBuilderWithPage>> pageBreakListeners   = new ArrayList<>();
 
                     @Override
                     public PDFBuilderWithPage addBlankPage()
                     {
                         this.page = new PDPage();
                         this.resetTextOffsets();
+                        this.executePageBreakListeners();
                         document.addPage(this.page);
                         return this;
+                    }
+
+                    private void executePageBreakListeners()
+                    {
+                        this.pageBreakListeners.forEach(listener -> listener.accept(this));
                     }
 
                     private void resetTextOffsets()
                     {
                         this.offset = 760;
                         this.footerOffset = 0;
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener)
+                    {
+                        this.pageBreakListeners.add(listener);
+                        return this;
                     }
 
                     @Override
