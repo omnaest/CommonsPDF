@@ -176,6 +176,8 @@ public class PDFUtils
 
         <E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor);
 
+        <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor);
+
         PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener);
 
     }
@@ -622,6 +624,13 @@ public class PDFUtils
                         }
                         return this;
                     }
+
+                    @Override
+                    public <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor)
+                    {
+                        return this.withElements(elements.stream(), processor);
+                    }
+
                 };
             }
         };
