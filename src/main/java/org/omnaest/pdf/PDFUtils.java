@@ -221,22 +221,22 @@ public class PDFUtils
          * @param pdfFile
          * @throws IOException
          */
-        void write(File pdfFile) throws IOException;
+        void writeTo(File pdfFile) throws IOException;
 
         /**
-         * Similar to {@link #write(File)} but using the given {@link SimpleExceptionHandler} for handling {@link Exception}s
+         * Similar to {@link #writeTo(File)} but using the given {@link SimpleExceptionHandler} for handling {@link Exception}s
          *
          * @param pdfFile
          * @param handler
          */
-        void write(File pdfFile, SimpleExceptionHandler handler);
+        void writeTo(File pdfFile, SimpleExceptionHandler handler);
 
         /**
-         * Similar to {@link #write(File)} without throwing an {@link IOException}
+         * Similar to {@link #writeTo(File)} without throwing an {@link IOException}
          *
          * @param pdfFile
          */
-        void writeSilently(File pdfFile);
+        void writeSilentlyTo(File pdfFile);
 
         InputStream get();
 
@@ -385,24 +385,24 @@ public class PDFUtils
                                 }
 
                                 @Override
-                                public void write(File pdfFile) throws IOException
+                                public void writeTo(File pdfFile) throws IOException
                                 {
                                     FileUtils.copyInputStreamToFile(inputStream, pdfFile);
                                 }
 
                                 @Override
-                                public void writeSilently(File pdfFile)
+                                public void writeSilentlyTo(File pdfFile)
                                 {
                                     SimpleExceptionHandler handler = null;
-                                    this.write(pdfFile, handler);
+                                    this.writeTo(pdfFile, handler);
                                 }
 
                                 @Override
-                                public void write(File pdfFile, SimpleExceptionHandler handler)
+                                public void writeTo(File pdfFile, SimpleExceptionHandler handler)
                                 {
                                     try
                                     {
-                                        this.write(pdfFile);
+                                        this.writeTo(pdfFile);
                                     }
                                     catch (IOException e)
                                     {

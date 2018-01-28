@@ -50,7 +50,7 @@ public class PDFUtilsTest
                 .addTitle("Titel2")
                 .addText("Dies ist ein Test")
                 .build()
-                .write(new File("C:/Temp/test.pdf"));
+                .writeTo(new File("C:/Temp/test.pdf"));
     }
 
     @Test
@@ -70,7 +70,7 @@ public class PDFUtilsTest
                 .addTitle("Titel of main pdf")
                 .addPagesOfFurtherPDF(furtherPDF)
                 .build()
-                .write(new File("C:/Temp/test_add_further.pdf"));
+                .writeTo(new File("C:/Temp/test_add_further.pdf"));
     }
 
     @Test
