@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Consumer;
@@ -121,6 +122,14 @@ public class PDFUtils
         PDFBuilderWithPage addText(Iterable<String> texts);
 
         /**
+         * Similar to {@link #addText(Iterable)}
+         * 
+         * @param texts
+         * @return
+         */
+        PDFBuilderWithPage addText(String... texts);
+
+        /**
          * Similar to {@link #addText(Iterable)} but allows to specify the {@link TextSize}
          * 
          * @param textSize
@@ -128,6 +137,15 @@ public class PDFUtils
          * @return
          */
         PDFBuilderWithPage addText(TextSizeProvider textSize, Iterable<String> texts);
+
+        /**
+         * Similar to {@link #addText(TextSizeProvider, Iterable)}
+         * 
+         * @param textSize
+         * @param texts
+         * @return
+         */
+        PDFBuilderWithPage addText(TextSizeProvider textSize, String... texts);
 
         /**
          * Similar to {@link #addBlankTextLine()} with {@link TextSize#NORMAL}
@@ -179,6 +197,8 @@ public class PDFUtils
         <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor);
 
         PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener);
+
+        PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> builderConsumer);
 
     }
 
@@ -277,9 +297,13 @@ public class PDFUtils
             {
                 return new PDFBuilderWithPage()
                 {
+                    private static final int PAGE_WIDTH = 540;
+
                     private PDPage page;
-                    private int    offset       = 0;
-                    private int    footerOffset = 0;
+                    private int    offset          = 0;
+                    private int    footerOffset    = 0;
+                    private int    column          = 0;
+                    private int    numberOfColumns = 1;
 
                     private List<PDDocument>                   addedSourceDocuments = new ArrayList<>();
                     private List<Consumer<PDFBuilderWithPage>> pageBreakListeners   = new ArrayList<>();
@@ -303,6 +327,7 @@ public class PDFUtils
                     {
                         this.offset = 760;
                         this.footerOffset = 0;
+                        this.column = 0;
                     }
 
                     @Override
@@ -454,13 +479,41 @@ public class PDFUtils
 
                     private void addText(String text, int fontSize, double padding)
                     {
-                        this.offset -= fontSize * 1.5;
-                        this.addRawText(text, fontSize, this.offset);
-                        this.offset -= padding;
-                        if (this.offset < 60)
+                        if (this.column == 0)
                         {
-                            this.addBlankPage();
+                            this.offset -= fontSize * 1.5;
                         }
+                        if (this.column < this.numberOfColumns - 1)
+                        {
+                            this.addRawText(text, fontSize, this.offset);
+                            this.column++;
+                        }
+                        else
+                        {
+                            this.addRawText(text, fontSize, this.offset);
+                            this.column = 0;
+                        }
+                        if (this.column == this.numberOfColumns - 1)
+                        {
+                            this.offset -= padding;
+                            if (this.offset < 60)
+                            {
+                                this.addBlankPage();
+                            }
+                        }
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> builderConsumer)
+                    {
+                        int previousNumberOfColumns = this.numberOfColumns;
+                        this.numberOfColumns = numberOfColumns;
+
+                        builderConsumer.accept(this);
+
+                        this.numberOfColumns = previousNumberOfColumns;
+                        this.column = 0;
+                        return this;
                     }
 
                     private void addRawText(String text, int fontSize, int offset)
@@ -469,13 +522,13 @@ public class PDFUtils
 
                         try (PDPageContentStream contents = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true, true))
                         {
+                            int columnOffset = PAGE_WIDTH / 10 + (this.column * PAGE_WIDTH / this.numberOfColumns);
                             contents.setLeading(1.5);
                             contents.beginText();
                             contents.setFont(font, fontSize);
-                            contents.newLineAtOffset(60, offset);
+                            contents.newLineAtOffset(columnOffset, offset);
                             contents.showText(text);
                             contents.endText();
-
                         }
                         catch (IOException e)
                         {
@@ -494,11 +547,31 @@ public class PDFUtils
                     }
 
                     @Override
+                    public PDFBuilderWithPage addText(String... texts)
+                    {
+                        if (texts != null)
+                        {
+                            this.addText(Arrays.asList(texts));
+                        }
+                        return this;
+                    }
+
+                    @Override
                     public PDFBuilderWithPage addText(TextSizeProvider textSize, Iterable<String> texts)
                     {
                         if (texts != null)
                         {
                             texts.forEach(text -> this.addText(textSize, text));
+                        }
+                        return this;
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addText(TextSizeProvider textSize, String... texts)
+                    {
+                        if (texts != null)
+                        {
+                            this.addText(textSize, Arrays.asList(texts));
                         }
                         return this;
                     }

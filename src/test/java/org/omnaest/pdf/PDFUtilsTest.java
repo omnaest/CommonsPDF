@@ -28,6 +28,7 @@ import java.util.stream.Stream;
 import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.omnaest.pdf.PDFUtils.TextSize;
 import org.omnaest.utils.FileUtils;
 import org.omnaest.utils.MatcherUtils;
 import org.omnaest.utils.StringUtils;
@@ -51,6 +52,24 @@ public class PDFUtilsTest
                 .addText("Dies ist ein Test")
                 .build()
                 .writeTo(new File("C:/Temp/test.pdf"));
+    }
+
+    @Test
+    @Ignore
+    public void testColumns() throws Exception
+    {
+        PDFUtils.getPDFInstance()
+                .createEmptyPDF()
+                .addBlankPage()
+                .addTitle("Titel")
+                .withColumns(5,
+                             page -> page.addText("Dies ist ein Test", "Dies auch", "Und dies", "Und das", "Und so weiter", "Und weiter weiter", "Und weiter",
+                                                  "Und weiter", "Und weiter")
+                                         .addText(TextSize.VERY_SMALL, "Dies ist ein Test", "Dies auch", "Und dies", "Und das", "Und so weiter",
+                                                  "Und weiter weiter", "Und weiter", "Und weiter", "Und weiter"))
+                .addFooter("Footer text")
+                .build()
+                .writeTo(new File("C:/Temp/testColumns.pdf"));
     }
 
     @Test
