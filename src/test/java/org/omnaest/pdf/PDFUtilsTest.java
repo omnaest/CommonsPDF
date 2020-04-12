@@ -28,6 +28,7 @@ import java.util.stream.Stream;
 import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.omnaest.pdf.PDFUtils.DisplayResolution;
 import org.omnaest.pdf.PDFUtils.TextSize;
 import org.omnaest.utils.FileUtils;
 import org.omnaest.utils.MatcherUtils;
@@ -52,6 +53,28 @@ public class PDFUtilsTest
                 .addText("Dies ist ein Test")
                 .build()
                 .writeTo(new File("C:/Temp/test.pdf"));
+    }
+
+    @Test
+    @Ignore
+    public void testAddPNG() throws Exception
+    {
+        byte[] pngSmiley = org.apache.commons.io.FileUtils.readFileToByteArray(new File("C:\\Temp\\stocks2\\asmiley.png"));
+        byte[] pngStocks = org.apache.commons.io.FileUtils.readFileToByteArray(new File("C:\\Temp\\stocks2\\atest.png"));
+        PDFUtils.getPDFInstance()
+                .createEmptyPDF()
+                .addBlankPage()
+                .addTitle("Titel")
+                .addText("Dies ist ein Test")
+                .addPNG(pngSmiley, 50, 50)
+                .addText("Weitere Zeile")
+                .addFooter("Footer text")
+                .addBlankPage(DisplayResolution._640x480)
+                .addTitle("Titel2")
+                .addText("Dies ist ein Test")
+                .addPNGAsBackground(pngStocks)
+                .build()
+                .writeTo(new File("C:/Temp/stocks2/atest.pdf"));
     }
 
     @Test
@@ -128,6 +151,45 @@ public class PDFUtilsTest
 
         FileUtils.toStreamConsumer(new File("C:\\Z\\databases\\odor thresholds\\odor_thresholds.tsv"))
                  .accept(Stream.concat(Stream.of(Arrays.asList("id", "name", "CAS", "formula", "mass", "threshold min", "threshold max", "description")
+                                                       .stream()
+                                                       .collect(Collectors.joining("\t"))),
+                                       lines));
+
+        //        System.out.println(text);
+    }
+
+    @Test
+    @Ignore
+    public void testLoadPDF2() throws InvalidPasswordException, IOException
+    {
+        Stream<String> tokens = PDFUtils.getPDFInstance()
+                                        .loadPDF(new File("C:\\Z\\data\\PatientID_MB000002BJ.pdf"))
+                                        .build()
+                                        .getAsTextLines();
+
+        //        String text = tokens.collect(Collectors.joining("\n"));
+
+        //15 1-Undecene, 4-methyl- 0.57 0.00 0.57  
+        String id = "([0-9]+)";
+        String compound = "([a-zA-Z0-9\\-\\,\\.\\[\\]\\(\\)\\s]+)";
+        String gradient = "([0-9\\.]+)";
+        String air = "([0-9\\.]+)";
+        String breath = "([0-9\\.]+)";
+
+        Pattern pattern = Pattern.compile("^\\s*" + id + "\\s+" + compound + "\\s+" + gradient + "\\s+" + air + "\\s+" + breath + "\\s*$");
+        Stream<String> lines = tokens.peek(System.out::println)
+                                     .map(token -> MatcherUtils.matcher()
+                                                               .of(pattern)
+                                                               .matchAgainst(token)
+                                                               .map(match -> match.getSubGroupsAsStream()
+                                                                                  .collect(Collectors.joining("\t")))
+                                                               .orElse(null))
+                                     .filter(line -> org.apache.commons.lang3.StringUtils.isNotBlank(line))
+                                     .map(token -> token)
+                                     .peek(System.out::println);
+
+        FileUtils.toStreamConsumer(new File("C:\\Z\\data\\PatientID_MB000002BJ.tsv"))
+                 .accept(Stream.concat(Stream.of(Arrays.asList("id", "compound", "gradient", "air", "breath")
                                                        .stream()
                                                        .collect(Collectors.joining("\t"))),
                                        lines));

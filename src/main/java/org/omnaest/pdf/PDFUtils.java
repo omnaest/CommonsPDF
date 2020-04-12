@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -43,6 +44,7 @@ import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.apache.pdfbox.pdmodel.font.PDFont;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.omnaest.utils.SimpleExceptionHandler;
@@ -72,7 +74,7 @@ public class PDFUtils
 
     public enum TextSize implements TextSizeProvider
     {
-        LARGE(16), NORMAL(12), SMALL(8), VERY_SMALL(6);
+        LARGE(16), NORMAL(12), SMALL(8), VERY_SMALL(6), ULTRA_SMALL(4);
 
         private int size;
 
@@ -89,9 +91,81 @@ public class PDFUtils
 
     }
 
+    /**
+     * @see DisplayResolution
+     * @author omnaest
+     */
+    public static interface ResolutionProvider
+    {
+        public int getWidth();
+
+        public int getHeight();
+    }
+
+    /**
+     * Provider of typical screen dimensions
+     * 
+     * @author omnaest
+     */
+    public enum DisplayResolution implements ResolutionProvider
+    {
+        _800x600(800, 600),
+        _800x300(800, 300),
+        _1440x900(1440, 900),
+        _1280x800(1280, 800),
+        _1280x1024(1280, 1024),
+        _800x1280(800, 1200),
+        _640x480(640, 480),
+        _320x240(320, 240);
+
+        private int width;
+        private int height;
+
+        private DisplayResolution(int width, int height)
+        {
+            this.width = width;
+            this.height = height;
+        }
+
+        @Override
+        public int getWidth()
+        {
+            return this.width;
+        }
+
+        @Override
+        public int getHeight()
+        {
+            return this.height;
+        }
+
+        public static ResolutionProvider of(int width, int height)
+        {
+            return new ResolutionProvider()
+            {
+                @Override
+                public int getWidth()
+                {
+                    return width;
+                }
+
+                @Override
+                public int getHeight()
+                {
+                    return height;
+                }
+            };
+        }
+    }
+
     public static interface ElementProcessor<E>
     {
         public void handle(PDFBuilderWithPage page, E element);
+    }
+
+    public static interface RawElementProcessor<E>
+    {
+        public void handle(E element);
     }
 
     public static interface PDFBuilderWithPage extends PDFBuilder
@@ -196,15 +270,110 @@ public class PDFUtils
 
         <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor);
 
+        <E> PDFBuilderWithPage withElements(Collection<E> elements, RawElementProcessor<E> processor);
+
         PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener);
 
+        /**
+         * Defines multiple columns during the lifetime of the given consumer. Each {@link #addText(String)} call will then iterate through each column before
+         * changing the row.
+         * 
+         * @param numberOfColumns
+         * @param builderConsumer
+         * @return
+         */
         PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> builderConsumer);
+
+        /**
+         * Adds a given PNG image at the current offset and moves the offset pointer
+         * 
+         * @param data
+         * @param imageName
+         * @param width
+         * @param height
+         * @return
+         */
+        PDFBuilderWithPage addPNG(byte[] data, String imageName, int width, int height);
+
+        /**
+         * Similar to {@link #addPNG(byte[], String, int, int)} with the default image name 'Image1','Image2', ...
+         * 
+         * @param data
+         * @param width
+         * @param height
+         * @return
+         */
+        PDFBuilderWithPage addPNG(byte[] data, int width, int height);
+
+        /**
+         * Similar to {@link #addPNG(byte[], int, int)} with a given {@link DisplayResolution}
+         * 
+         * @see ResolutionProvider
+         * @see DisplayResolution
+         * @param data
+         * @param displayResolution
+         * @return
+         */
+        PDFBuilderWithPage addPNG(byte[] data, ResolutionProvider displayResolution);
+
+        /**
+         * Adds a given PNG image as background without changing the current offset.
+         * 
+         * @param data
+         * @param imageName
+         * @return
+         */
+        PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName);
+
+        /**
+         * Similar to {@link #addPNGAsBackground(byte[], String)} with a default image name like 'Image1', 'Image2', ...
+         * 
+         * @param data
+         * @return
+         */
+        PDFBuilderWithPage addPNGAsBackground(byte[] data);
+
+        /**
+         * Similar to {@link #addPNGAsBackground(byte[], String)} with the possibility to specify a width and height
+         * 
+         * @param data
+         * @param imageName
+         * @param width
+         * @param height
+         * @return
+         */
+        PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, int width, int height);
+
+        /**
+         * Similar to {@link #addPNGAsBackground(byte[], String)} with the possibility to specify a {@link DisplayResolution}
+         * 
+         * @see ResolutionProvider
+         * @see DisplayResolution
+         * @param data
+         * @param imageName
+         * @param displayResolution
+         * @return
+         */
+        PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, ResolutionProvider displayResolution);
+
+        /**
+         * Similar to {@link #addPNGAsBackground(byte[])} with the possibility to specify a {@link DisplayResolution}
+         * 
+         * @param data
+         * @param displayResolution
+         * @return
+         */
+        PDFBuilderWithPage addPNGAsBackground(byte[] data, ResolutionProvider displayResolution);
 
     }
 
-    public static interface PageProcessor
+    public static interface PagesProcessor
     {
         public void process(Stream<PDFBuilderWithPage> pages);
+    }
+
+    public static interface PageProcessor extends Consumer<PDFBuilderWithPage>
+    {
     }
 
     public static interface PDFBuilder
@@ -219,6 +388,14 @@ public class PDFUtils
          */
         PDFBuilderWithPage addBlankPage();
 
+        /**
+         * Similar to {@link #addBlankPage()} but allows to specify the {@link DisplayResolution}
+         * 
+         * @param displayResolution
+         * @return
+         */
+        PDFBuilderWithPage addBlankPage(ResolutionProvider displayResolution);
+
         PDFBuilderWithPage getPage(int pageIndex);
 
         PDFBuilderWithPage addPagesOfFurtherPDF(byte[] pdf) throws InvalidPasswordException, IOException;
@@ -229,7 +406,27 @@ public class PDFUtils
 
         PDFBuilderWithPage addPagesOfFurtherPDFSilently(Collection<byte[]> pdfs);
 
-        PDFBuilder processPages(PageProcessor processor);
+        PDFBuilderWithPage addPageWithPNG(byte[] png, ResolutionProvider displayResolution);
+
+        /**
+         * Processes the given {@link Stream} of pages. <br>
+         * <br>
+         * Resets the current cursor to the last page.
+         * 
+         * @param processor
+         * @return
+         */
+        PDFBuilder processPages(PagesProcessor processor);
+
+        /**
+         * Processes all available pages.<br>
+         * <br>
+         * Resets the current cursor position
+         * 
+         * @param processor
+         * @return
+         */
+        PDFBuilder forEachPage(PageProcessor processor);
 
     }
 
@@ -300,22 +497,35 @@ public class PDFUtils
                     private static final int PAGE_WIDTH = 540;
 
                     private PDPage page;
-                    private int    offset          = 0;
+                    private int    rowOffset       = 0;
                     private int    footerOffset    = 0;
                     private int    column          = 0;
                     private int    numberOfColumns = 1;
 
-                    private List<PDDocument>                   addedSourceDocuments = new ArrayList<>();
-                    private List<Consumer<PDFBuilderWithPage>> pageBreakListeners   = new ArrayList<>();
+                    private List<PDDocument> addedSourceDocuments = new ArrayList<>();
+                    private int              addedPNGImageCounter = 0;
+
+                    private List<Consumer<PDFBuilderWithPage>> pageBreakListeners = new ArrayList<>();
 
                     @Override
                     public PDFBuilderWithPage addBlankPage()
                     {
-                        this.page = new PDPage();
+                        return this.addBlankPage(new PDPage());
+                    }
+
+                    private PDFBuilderWithPage addBlankPage(PDPage page)
+                    {
+                        this.page = page;
                         this.resetTextOffsets();
                         this.executePageBreakListeners();
                         document.addPage(this.page);
                         return this;
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addBlankPage(ResolutionProvider displayResolution)
+                    {
+                        return this.addBlankPage(new PDPage(new PDRectangle(displayResolution.getWidth(), displayResolution.getHeight())));
                     }
 
                     private void executePageBreakListeners()
@@ -325,7 +535,7 @@ public class PDFUtils
 
                     private void resetTextOffsets()
                     {
-                        this.offset = 760;
+                        this.rowOffset = 760;
                         this.footerOffset = 0;
                         this.column = 0;
                     }
@@ -343,7 +553,7 @@ public class PDFUtils
                         this.page = document.getPage(pageIndex);
 
                         int height = this.determinePageHeight();
-                        this.offset = height - 50;
+                        this.rowOffset = height - 50;
                         return this;
                     }
 
@@ -398,9 +608,13 @@ public class PDFUtils
                                     try
                                     {
                                         PDFTextStripper stripper = new PDFTextStripper();
-                                        stripper.setAddMoreFormatting(true);
+                                        stripper.setAddMoreFormatting(false);
+                                        stripper.setWordSeparator("\t");
+                                        //                                        stripper.setSpacingTolerance(0.5f);
+                                        //                                        stripper.setSortByPosition(true);
                                         PDDocument pdDocument = PDDocument.load(data);
                                         pdDocument.setAllSecurityToBeRemoved(true);
+
                                         return StringUtils.splitToStreamByLineSeparator(stripper.getText(pdDocument));
                                     }
                                     catch (IOException e)
@@ -479,28 +693,138 @@ public class PDFUtils
 
                     private void addText(String text, int fontSize, double padding)
                     {
+                        this.addElementWithOffset(fontSize, padding, (rowOffset, columnOffset) ->
+                        {
+                            this.addRawText(text, fontSize, this.rowOffset, columnOffset);
+                        });
+
+                    }
+
+                    private void addElementWithOffset(double paddingBefore, double paddingAfter, BiConsumer<Integer, Integer> offsetConsumer)
+                    {
+                        int columnOffset = this.determineColumnOffset();
+
                         if (this.column == 0)
                         {
-                            this.offset -= fontSize * 1.5;
+                            this.rowOffset -= paddingBefore * 1.5;
                         }
-                        if (this.column < this.numberOfColumns - 1)
+
+                        offsetConsumer.accept(this.rowOffset, columnOffset);
+
+                        boolean isLastColumn = this.column >= this.numberOfColumns - 1;
+                        if (isLastColumn)
                         {
-                            this.addRawText(text, fontSize, this.offset);
-                            this.column++;
+                            this.rowOffset -= paddingAfter;
+                            this.switchToNewPageIfOffsetIsBelowThreshold();
+                        }
+
+                        if (isLastColumn)
+                        {
+                            this.column = 0;
                         }
                         else
                         {
-                            this.addRawText(text, fontSize, this.offset);
-                            this.column = 0;
+                            this.column++;
                         }
-                        if (this.column == this.numberOfColumns - 1)
+
+                    }
+
+                    private void switchToNewPageIfOffsetIsBelowThreshold()
+                    {
+                        if (this.rowOffset < 60)
                         {
-                            this.offset -= padding;
-                            if (this.offset < 60)
-                            {
-                                this.addBlankPage();
-                            }
+                            this.addBlankPage();
                         }
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNG(byte[] data, int width, int height)
+                    {
+                        String imageName = this.generatePNGImageName();
+                        return this.addPNG(data, imageName, width, height);
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNG(byte[] data, ResolutionProvider displayResolution)
+                    {
+                        return this.addPNG(data, displayResolution.getWidth(), displayResolution.getHeight());
+                    }
+
+                    private String generatePNGImageName()
+                    {
+                        return "Image" + ++this.addedPNGImageCounter;
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNG(byte[] data, String imageName, int width, int height)
+                    {
+                        double paddingBefore = height;
+                        double paddingAfter = 6;
+                        this.addElementWithOffset(paddingBefore, paddingAfter, (rowOffset, columnOffset) ->
+                        {
+                            this.addPNG(data, imageName, rowOffset, columnOffset, width, height);
+                        });
+
+                        return this;
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPageWithPNG(byte[] png, ResolutionProvider displayResolution)
+                    {
+                        return this.addBlankPage(displayResolution)
+                                   .addPNGAsBackground(png);
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNGAsBackground(byte[] data)
+                    {
+                        return this.addPNGAsBackground(data, this.generatePNGImageName());
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, ResolutionProvider displayResolution)
+                    {
+                        return this.addPNGAsBackground(data, this.generatePNGImageName(), displayResolution);
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, ResolutionProvider displayResolution)
+                    {
+                        int width = displayResolution.getWidth();
+                        int height = displayResolution.getHeight();
+                        return this.addPNGAsBackground(data, imageName, width, height);
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName)
+                    {
+                        PDRectangle box = this.page.getBBox();
+                        int width = (int) box.getWidth();
+                        int height = (int) box.getHeight();
+                        return this.addPNGAsBackground(data, imageName, width, height);
+                    }
+
+                    @Override
+                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, int width, int height)
+                    {
+                        return this.addPNG(data, imageName, 0, 0, width, height);
+                    }
+
+                    private PDFBuilderWithPage addPNG(byte[] data, String imageName, int rowOffset, int columnOffset, int width, int height)
+                    {
+                        try (PDPageContentStream contentStream = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true,
+                                                                                         true))
+                        {
+                            PDImageXObject imageObject = PDImageXObject.createFromByteArray(document, data, imageName);
+                            contentStream.drawImage(imageObject, columnOffset, rowOffset, width, height);
+                            contentStream.close();
+                        }
+                        catch (IOException e)
+                        {
+                            LOG.error("Exception defining text", e);
+                        }
+
+                        return this;
                     }
 
                     @Override
@@ -518,15 +842,20 @@ public class PDFUtils
 
                     private void addRawText(String text, int fontSize, int offset)
                     {
+                        int columnOffset = this.determineColumnOffset();
+                        this.addRawText(text, fontSize, offset, columnOffset);
+                    }
+
+                    private void addRawText(String text, int fontSize, int rowOffset, int columnOffset)
+                    {
                         PDFont font = PDType1Font.HELVETICA_BOLD;
 
                         try (PDPageContentStream contents = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true, true))
                         {
-                            int columnOffset = PAGE_WIDTH / 10 + (this.column * PAGE_WIDTH / this.numberOfColumns);
                             contents.setLeading(1.5);
                             contents.beginText();
                             contents.setFont(font, fontSize);
-                            contents.newLineAtOffset(columnOffset, offset);
+                            contents.newLineAtOffset(columnOffset, rowOffset);
                             contents.showText(text);
                             contents.endText();
                         }
@@ -534,6 +863,11 @@ public class PDFUtils
                         {
                             LOG.error("Exception defining text", e);
                         }
+                    }
+
+                    private int determineColumnOffset()
+                    {
+                        return PAGE_WIDTH / 10 + (this.column * PAGE_WIDTH / this.numberOfColumns);
                     }
 
                     @Override
@@ -680,12 +1014,18 @@ public class PDFUtils
                     }
 
                     @Override
-                    public PDFBuilder processPages(PageProcessor processor)
+                    public PDFBuilder processPages(PagesProcessor processor)
                     {
                         processor.process(IntStream.range(0, document.getNumberOfPages())
 
                                                    .mapToObj(pageIndex -> this.getPage(pageIndex)));
                         return this;
+                    }
+
+                    @Override
+                    public PDFBuilder forEachPage(PageProcessor processor)
+                    {
+                        return this.processPages((Stream<PDFBuilderWithPage> pages) -> pages.forEach(page -> processor.accept(page)));
                     }
 
                     @Override
@@ -702,6 +1042,12 @@ public class PDFUtils
                     public <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor)
                     {
                         return this.withElements(elements.stream(), processor);
+                    }
+
+                    @Override
+                    public <E> PDFBuilderWithPage withElements(Collection<E> elements, RawElementProcessor<E> processor)
+                    {
+                        return this.withElements(elements, (page, element) -> processor.handle(element));
                     }
 
                 };
