@@ -30,6 +30,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -62,6 +63,16 @@ public class PDFUtils
         PDFBuilder createEmptyPDF();
 
         PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException;
+
+        PDFBuilder loadPDF(byte[] data, Function<Exception, PDFBuilder> exceptionHandler);
+
+        /**
+         * Tries to load the given pdf data, but creates a blank pdf if that fails for any reason.
+         * 
+         * @param data
+         * @return
+         */
+        PDFBuilder loadPDFOrCreateEmpty(byte[] data);
 
         PDFBuilder loadPDF(File file) throws InvalidPasswordException, IOException;
 
@@ -461,598 +472,633 @@ public class PDFUtils
 
         Stream<String> getAsTextLines();
 
+        String getAsText();
+
+    }
+
+    private static class PDFLoaderImpl implements PDFLoader
+    {
+        private PDDocument document = null;
+
+        @Override
+        public PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException
+        {
+            this.document = PDDocument.load(data);
+            this.document.setAllSecurityToBeRemoved(true);
+            return this.newPDFBuilderWithPage();
+        }
+
+        @Override
+        public PDFBuilder loadPDF(byte[] data, Function<Exception, PDFBuilder> exceptionHandler)
+        {
+            PDFBuilder result = null;
+            try
+            {
+                result = this.loadPDF(data);
+            }
+            catch (Exception e)
+            {
+                if (exceptionHandler != null)
+                {
+                    result = exceptionHandler.apply(e);
+                }
+            }
+            return result;
+        }
+
+        @Override
+        public PDFBuilder loadPDFOrCreateEmpty(byte[] data)
+        {
+            return this.loadPDF(data, e -> this.createEmptyPDF());
+        }
+
+        @Override
+        public PDFBuilder loadPDF(File file) throws InvalidPasswordException, IOException
+        {
+            return this.loadPDF(FileUtils.readFileToByteArray(file));
+        }
+
+        @Override
+        public PDFBuilder createEmptyPDF()
+        {
+            this.document = new PDDocument();
+            return this.newPDFBuilderWithPage();
+        }
+
+        private PDFBuilderWithPage newPDFBuilderWithPage()
+        {
+            return new PDFBuilderWithPage()
+            {
+                private static final int PAGE_WIDTH = 540;
+
+                private PDPage page;
+                private int    rowOffset       = 0;
+                private int    footerOffset    = 0;
+                private int    column          = 0;
+                private int    numberOfColumns = 1;
+
+                private List<PDDocument> addedSourceDocuments = new ArrayList<>();
+                private int              addedPNGImageCounter = 0;
+
+                private List<Consumer<PDFBuilderWithPage>> pageBreakListeners = new ArrayList<>();
+
+                @Override
+                public PDFBuilderWithPage addBlankPage()
+                {
+                    return this.addBlankPage(new PDPage());
+                }
+
+                private PDFBuilderWithPage addBlankPage(PDPage page)
+                {
+                    this.page = page;
+                    this.resetTextOffsets();
+                    this.executePageBreakListeners();
+                    PDFLoaderImpl.this.document.addPage(this.page);
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addBlankPage(ResolutionProvider displayResolution)
+                {
+                    return this.addBlankPage(new PDPage(new PDRectangle(displayResolution.getWidth(), displayResolution.getHeight())));
+                }
+
+                private void executePageBreakListeners()
+                {
+                    this.pageBreakListeners.forEach(listener -> listener.accept(this));
+                }
+
+                private void resetTextOffsets()
+                {
+                    this.rowOffset = 760;
+                    this.footerOffset = 0;
+                    this.column = 0;
+                }
+
+                @Override
+                public PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener)
+                {
+                    this.pageBreakListeners.add(listener);
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage getPage(int pageIndex)
+                {
+                    this.page = PDFLoaderImpl.this.document.getPage(pageIndex);
+
+                    int height = this.determinePageHeight();
+                    this.rowOffset = height - 50;
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage getLastPage()
+                {
+                    this.resetTextOffsets();
+                    return this.getPage(PDFLoaderImpl.this.document.getPages()
+                                                                   .getCount()
+                            - 1);
+                }
+
+                private int determinePageHeight()
+                {
+                    PDRectangle rectangle = this.page.getBBox();
+                    int height = (int) rectangle.getHeight();
+                    return height;
+                }
+
+                @Override
+                public PDFWriter build()
+                {
+                    PDFWriter retval = null;
+                    try
+                    {
+                        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                        PDFLoaderImpl.this.document.save(outputStream);
+                        PDFLoaderImpl.this.document.close();
+                        outputStream.close();
+
+                        this.closeFurtherDocuments();
+
+                        byte[] data = outputStream.toByteArray();
+                        ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
+                        retval = new PDFWriter()
+                        {
+                            @Override
+                            public InputStream get()
+                            {
+                                return inputStream;
+                            }
+
+                            @Override
+                            public byte[] getAsByteArray()
+                            {
+                                return data;
+                            }
+
+                            @Override
+                            public Stream<String> getAsTextLines()
+                            {
+                                return StringUtils.splitToStreamByLineSeparator(this.getAsText());
+                            }
+
+                            @Override
+                            public String getAsText()
+                            {
+                                try
+                                {
+                                    PDFTextStripper stripper = new PDFTextStripper();
+                                    stripper.setAddMoreFormatting(false);
+                                    //                                    stripper.setWordSeparator("\t");
+                                    //                                        stripper.setSpacingTolerance(0.5f);
+                                    //                                        stripper.setSortByPosition(true);
+                                    PDDocument pdDocument = PDDocument.load(data);
+                                    pdDocument.setAllSecurityToBeRemoved(true);
+
+                                    return stripper.getText(pdDocument);
+                                }
+                                catch (IOException e)
+                                {
+                                    throw new IllegalStateException(e);
+                                }
+                            }
+
+                            @Override
+                            public void writeTo(File pdfFile) throws IOException
+                            {
+                                FileUtils.copyInputStreamToFile(inputStream, pdfFile);
+                            }
+
+                            @Override
+                            public void writeSilentlyTo(File pdfFile)
+                            {
+                                SimpleExceptionHandler handler = null;
+                                this.writeTo(pdfFile, handler);
+                            }
+
+                            @Override
+                            public void writeTo(File pdfFile, SimpleExceptionHandler handler)
+                            {
+                                try
+                                {
+                                    this.writeTo(pdfFile);
+                                }
+                                catch (IOException e)
+                                {
+                                    if (handler != null)
+                                    {
+                                        handler.handle(e);
+                                    }
+                                }
+
+                            }
+                        };
+                    }
+                    catch (Exception e)
+                    {
+                        LOG.error("Exception during pdf creation", e);
+                    }
+                    return retval;
+                }
+
+                private void closeFurtherDocuments()
+                {
+                    this.addedSourceDocuments.forEach(furtherDocumentSource ->
+                    {
+                        try
+                        {
+                            furtherDocumentSource.close();
+                        }
+                        catch (IOException e)
+                        {
+                        }
+                    });
+                }
+
+                @Override
+                public PDFBuilderWithPage addText(String text)
+                {
+                    return this.addText(TextSize.NORMAL, text);
+                }
+
+                @Override
+                public PDFBuilderWithPage addText(TextSizeProvider textSize, String text)
+                {
+                    int fontSize = textSize.getSize();
+
+                    this.addText(text, fontSize, 0);
+
+                    return this;
+                }
+
+                private void addText(String text, int fontSize, double padding)
+                {
+                    this.addElementWithOffset(fontSize, padding, (rowOffset, columnOffset) ->
+                    {
+                        this.addRawText(text, fontSize, this.rowOffset, columnOffset);
+                    });
+
+                }
+
+                private void addElementWithOffset(double paddingBefore, double paddingAfter, BiConsumer<Integer, Integer> offsetConsumer)
+                {
+                    int columnOffset = this.determineColumnOffset();
+
+                    if (this.column == 0)
+                    {
+                        this.rowOffset -= paddingBefore * 1.5;
+                    }
+
+                    offsetConsumer.accept(this.rowOffset, columnOffset);
+
+                    boolean isLastColumn = this.column >= this.numberOfColumns - 1;
+                    if (isLastColumn)
+                    {
+                        this.rowOffset -= paddingAfter;
+                        this.switchToNewPageIfOffsetIsBelowThreshold();
+                    }
+
+                    if (isLastColumn)
+                    {
+                        this.column = 0;
+                    }
+                    else
+                    {
+                        this.column++;
+                    }
+
+                }
+
+                private void switchToNewPageIfOffsetIsBelowThreshold()
+                {
+                    if (this.rowOffset < 60)
+                    {
+                        this.addBlankPage();
+                    }
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNG(byte[] data, int width, int height)
+                {
+                    String imageName = this.generatePNGImageName();
+                    return this.addPNG(data, imageName, width, height);
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNG(byte[] data, ResolutionProvider displayResolution)
+                {
+                    return this.addPNG(data, displayResolution.getWidth(), displayResolution.getHeight());
+                }
+
+                private String generatePNGImageName()
+                {
+                    return "Image" + ++this.addedPNGImageCounter;
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNG(byte[] data, String imageName, int width, int height)
+                {
+                    double paddingBefore = height;
+                    double paddingAfter = 6;
+                    this.addElementWithOffset(paddingBefore, paddingAfter, (rowOffset, columnOffset) ->
+                    {
+                        this.addPNG(data, imageName, rowOffset, columnOffset, width, height);
+                    });
+
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addPageWithPNG(byte[] png, ResolutionProvider displayResolution)
+                {
+                    return this.addBlankPage(displayResolution)
+                               .addPNGAsBackground(png);
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNGAsBackground(byte[] data)
+                {
+                    return this.addPNGAsBackground(data, this.generatePNGImageName());
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNGAsBackground(byte[] data, ResolutionProvider displayResolution)
+                {
+                    return this.addPNGAsBackground(data, this.generatePNGImageName(), displayResolution);
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, ResolutionProvider displayResolution)
+                {
+                    int width = displayResolution.getWidth();
+                    int height = displayResolution.getHeight();
+                    return this.addPNGAsBackground(data, imageName, width, height);
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName)
+                {
+                    PDRectangle box = this.page.getBBox();
+                    int width = (int) box.getWidth();
+                    int height = (int) box.getHeight();
+                    return this.addPNGAsBackground(data, imageName, width, height);
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, int width, int height)
+                {
+                    return this.addPNG(data, imageName, 0, 0, width, height);
+                }
+
+                private PDFBuilderWithPage addPNG(byte[] data, String imageName, int rowOffset, int columnOffset, int width, int height)
+                {
+                    try (PDPageContentStream contentStream = new PDPageContentStream(PDFLoaderImpl.this.document, this.page,
+                                                                                     PDPageContentStream.AppendMode.PREPEND, true, true))
+                    {
+                        PDImageXObject imageObject = PDImageXObject.createFromByteArray(PDFLoaderImpl.this.document, data, imageName);
+                        contentStream.drawImage(imageObject, columnOffset, rowOffset, width, height);
+                        contentStream.close();
+                    }
+                    catch (IOException e)
+                    {
+                        LOG.error("Exception defining text", e);
+                    }
+
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> builderConsumer)
+                {
+                    int previousNumberOfColumns = this.numberOfColumns;
+                    this.numberOfColumns = numberOfColumns;
+
+                    builderConsumer.accept(this);
+
+                    this.numberOfColumns = previousNumberOfColumns;
+                    this.column = 0;
+                    return this;
+                }
+
+                private void addRawText(String text, int fontSize, int offset)
+                {
+                    int columnOffset = this.determineColumnOffset();
+                    this.addRawText(text, fontSize, offset, columnOffset);
+                }
+
+                private void addRawText(String text, int fontSize, int rowOffset, int columnOffset)
+                {
+                    PDFont font = PDType1Font.HELVETICA_BOLD;
+
+                    try (PDPageContentStream contents = new PDPageContentStream(PDFLoaderImpl.this.document, this.page, PDPageContentStream.AppendMode.PREPEND,
+                                                                                true, true))
+                    {
+                        contents.setLeading(1.5);
+                        contents.beginText();
+                        contents.setFont(font, fontSize);
+                        contents.newLineAtOffset(columnOffset, rowOffset);
+                        contents.showText(text);
+                        contents.endText();
+                    }
+                    catch (IOException e)
+                    {
+                        LOG.error("Exception defining text", e);
+                    }
+                }
+
+                private int determineColumnOffset()
+                {
+                    return PAGE_WIDTH / 10 + (this.column * PAGE_WIDTH / this.numberOfColumns);
+                }
+
+                @Override
+                public PDFBuilderWithPage addText(Iterable<String> texts)
+                {
+                    if (texts != null)
+                    {
+                        texts.forEach(this::addText);
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addText(String... texts)
+                {
+                    if (texts != null)
+                    {
+                        this.addText(Arrays.asList(texts));
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addText(TextSizeProvider textSize, Iterable<String> texts)
+                {
+                    if (texts != null)
+                    {
+                        texts.forEach(text -> this.addText(textSize, text));
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addText(TextSizeProvider textSize, String... texts)
+                {
+                    if (texts != null)
+                    {
+                        this.addText(textSize, Arrays.asList(texts));
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addBlankTextLine()
+                {
+                    return this.addBlankTextLine(TextSize.NORMAL);
+
+                }
+
+                @Override
+                public PDFBuilderWithPage addBlankTextLine(TextSizeProvider textSize)
+                {
+                    return this.addText(textSize, "");
+                }
+
+                @Override
+                public PDFBuilderWithPage addTitle(String title)
+                {
+                    this.addText(title, 24, 3);
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addSubTitle(String subTitle)
+                {
+                    this.addText(subTitle, 8, 6);
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addFooter(String footer)
+                {
+                    int offset = 40 - this.footerOffset;
+                    int fontSize = 6;
+                    this.addRawText(footer, fontSize, offset);
+
+                    this.footerOffset += fontSize * 1.5;
+
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addFooter(String... footers)
+                {
+                    if (footers != null)
+                    {
+                        for (String footer : footers)
+                        {
+                            this.addFooter(footer);
+                        }
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addPagesOfFurtherPDF(byte[] pdf) throws InvalidPasswordException, IOException
+                {
+                    PDDocument furtherDocument = PDDocument.load(pdf);
+
+                    furtherDocument.getPages()
+                                   .forEach(page ->
+                                   {
+                                       PDFLoaderImpl.this.document.addPage(page);
+                                   });
+
+                    this.addedSourceDocuments.add(furtherDocument);
+
+                    return this.getLastPage();
+                }
+
+                @Override
+                public PDFBuilderWithPage addPagesOfFurtherPDFSilently(Collection<byte[]> pdfs)
+                {
+                    if (pdfs != null)
+                    {
+                        pdfs.forEach(pdf -> this.addPagesOfFurtherPDFSilently(pdf));
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addPagesOfFurtherPDFSilently(byte[] pdf)
+                {
+                    SimpleExceptionHandler exceptionHandler = null;
+                    this.addPagesOfFurtherPDF(pdf, exceptionHandler);
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addPagesOfFurtherPDF(byte[] pdf, SimpleExceptionHandler exceptionHandler)
+                {
+                    try
+                    {
+                        this.addPagesOfFurtherPDF(pdf);
+                    }
+                    catch (Exception e)
+                    {
+                        if (exceptionHandler != null)
+                        {
+                            exceptionHandler.handle(e);
+                        }
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilder processPages(PagesProcessor processor)
+                {
+                    processor.process(IntStream.range(0, PDFLoaderImpl.this.document.getNumberOfPages())
+
+                                               .mapToObj(pageIndex -> this.getPage(pageIndex)));
+                    return this;
+                }
+
+                @Override
+                public PDFBuilder forEachPage(PageProcessor processor)
+                {
+                    return this.processPages((Stream<PDFBuilderWithPage> pages) -> pages.forEach(page -> processor.accept(page)));
+                }
+
+                @Override
+                public <E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor)
+                {
+                    if (elements != null && processor != null)
+                    {
+                        elements.forEach(element -> processor.handle(this, element));
+                    }
+                    return this;
+                }
+
+                @Override
+                public <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor)
+                {
+                    return this.withElements(elements.stream(), processor);
+                }
+
+                @Override
+                public <E> PDFBuilderWithPage withElements(Collection<E> elements, RawElementProcessor<E> processor)
+                {
+                    return this.withElements(elements, (page, element) -> processor.handle(element));
+                }
+
+            };
+        }
     }
 
     public static PDFLoader getPDFInstance()
     {
-        return new PDFLoader()
-        {
-            private PDDocument document = null;
-
-            @Override
-            public PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException
-            {
-                this.document = PDDocument.load(data);
-                this.document.setAllSecurityToBeRemoved(true);
-                return this.newPDFBuilderWithPage();
-            }
-
-            @Override
-            public PDFBuilder loadPDF(File file) throws InvalidPasswordException, IOException
-            {
-                return this.loadPDF(FileUtils.readFileToByteArray(file));
-            }
-
-            @Override
-            public PDFBuilder createEmptyPDF()
-            {
-                this.document = new PDDocument();
-                return this.newPDFBuilderWithPage();
-            }
-
-            private PDFBuilderWithPage newPDFBuilderWithPage()
-            {
-                return new PDFBuilderWithPage()
-                {
-                    private static final int PAGE_WIDTH = 540;
-
-                    private PDPage page;
-                    private int    rowOffset       = 0;
-                    private int    footerOffset    = 0;
-                    private int    column          = 0;
-                    private int    numberOfColumns = 1;
-
-                    private List<PDDocument> addedSourceDocuments = new ArrayList<>();
-                    private int              addedPNGImageCounter = 0;
-
-                    private List<Consumer<PDFBuilderWithPage>> pageBreakListeners = new ArrayList<>();
-
-                    @Override
-                    public PDFBuilderWithPage addBlankPage()
-                    {
-                        return this.addBlankPage(new PDPage());
-                    }
-
-                    private PDFBuilderWithPage addBlankPage(PDPage page)
-                    {
-                        this.page = page;
-                        this.resetTextOffsets();
-                        this.executePageBreakListeners();
-                        document.addPage(this.page);
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addBlankPage(ResolutionProvider displayResolution)
-                    {
-                        return this.addBlankPage(new PDPage(new PDRectangle(displayResolution.getWidth(), displayResolution.getHeight())));
-                    }
-
-                    private void executePageBreakListeners()
-                    {
-                        this.pageBreakListeners.forEach(listener -> listener.accept(this));
-                    }
-
-                    private void resetTextOffsets()
-                    {
-                        this.rowOffset = 760;
-                        this.footerOffset = 0;
-                        this.column = 0;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener)
-                    {
-                        this.pageBreakListeners.add(listener);
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage getPage(int pageIndex)
-                    {
-                        this.page = document.getPage(pageIndex);
-
-                        int height = this.determinePageHeight();
-                        this.rowOffset = height - 50;
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage getLastPage()
-                    {
-                        this.resetTextOffsets();
-                        return this.getPage(document.getPages()
-                                                    .getCount()
-                                - 1);
-                    }
-
-                    private int determinePageHeight()
-                    {
-                        PDRectangle rectangle = this.page.getBBox();
-                        int height = (int) rectangle.getHeight();
-                        return height;
-                    }
-
-                    @Override
-                    public PDFWriter build()
-                    {
-                        PDFWriter retval = null;
-                        try
-                        {
-                            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                            document.save(outputStream);
-                            document.close();
-                            outputStream.close();
-
-                            this.closeFurtherDocuments();
-
-                            byte[] data = outputStream.toByteArray();
-                            ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
-                            retval = new PDFWriter()
-                            {
-                                @Override
-                                public InputStream get()
-                                {
-                                    return inputStream;
-                                }
-
-                                @Override
-                                public byte[] getAsByteArray()
-                                {
-                                    return data;
-                                }
-
-                                @Override
-                                public Stream<String> getAsTextLines()
-                                {
-                                    try
-                                    {
-                                        PDFTextStripper stripper = new PDFTextStripper();
-                                        stripper.setAddMoreFormatting(false);
-                                        stripper.setWordSeparator("\t");
-                                        //                                        stripper.setSpacingTolerance(0.5f);
-                                        //                                        stripper.setSortByPosition(true);
-                                        PDDocument pdDocument = PDDocument.load(data);
-                                        pdDocument.setAllSecurityToBeRemoved(true);
-
-                                        return StringUtils.splitToStreamByLineSeparator(stripper.getText(pdDocument));
-                                    }
-                                    catch (IOException e)
-                                    {
-                                        throw new IllegalStateException(e);
-                                    }
-                                }
-
-                                @Override
-                                public void writeTo(File pdfFile) throws IOException
-                                {
-                                    FileUtils.copyInputStreamToFile(inputStream, pdfFile);
-                                }
-
-                                @Override
-                                public void writeSilentlyTo(File pdfFile)
-                                {
-                                    SimpleExceptionHandler handler = null;
-                                    this.writeTo(pdfFile, handler);
-                                }
-
-                                @Override
-                                public void writeTo(File pdfFile, SimpleExceptionHandler handler)
-                                {
-                                    try
-                                    {
-                                        this.writeTo(pdfFile);
-                                    }
-                                    catch (IOException e)
-                                    {
-                                        if (handler != null)
-                                        {
-                                            handler.handle(e);
-                                        }
-                                    }
-
-                                }
-                            };
-                        }
-                        catch (Exception e)
-                        {
-                            LOG.error("Exception during pdf creation", e);
-                        }
-                        return retval;
-                    }
-
-                    private void closeFurtherDocuments()
-                    {
-                        this.addedSourceDocuments.forEach(furtherDocumentSource ->
-                        {
-                            try
-                            {
-                                furtherDocumentSource.close();
-                            }
-                            catch (IOException e)
-                            {
-                            }
-                        });
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addText(String text)
-                    {
-                        return this.addText(TextSize.NORMAL, text);
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addText(TextSizeProvider textSize, String text)
-                    {
-                        int fontSize = textSize.getSize();
-
-                        this.addText(text, fontSize, 0);
-
-                        return this;
-                    }
-
-                    private void addText(String text, int fontSize, double padding)
-                    {
-                        this.addElementWithOffset(fontSize, padding, (rowOffset, columnOffset) ->
-                        {
-                            this.addRawText(text, fontSize, this.rowOffset, columnOffset);
-                        });
-
-                    }
-
-                    private void addElementWithOffset(double paddingBefore, double paddingAfter, BiConsumer<Integer, Integer> offsetConsumer)
-                    {
-                        int columnOffset = this.determineColumnOffset();
-
-                        if (this.column == 0)
-                        {
-                            this.rowOffset -= paddingBefore * 1.5;
-                        }
-
-                        offsetConsumer.accept(this.rowOffset, columnOffset);
-
-                        boolean isLastColumn = this.column >= this.numberOfColumns - 1;
-                        if (isLastColumn)
-                        {
-                            this.rowOffset -= paddingAfter;
-                            this.switchToNewPageIfOffsetIsBelowThreshold();
-                        }
-
-                        if (isLastColumn)
-                        {
-                            this.column = 0;
-                        }
-                        else
-                        {
-                            this.column++;
-                        }
-
-                    }
-
-                    private void switchToNewPageIfOffsetIsBelowThreshold()
-                    {
-                        if (this.rowOffset < 60)
-                        {
-                            this.addBlankPage();
-                        }
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNG(byte[] data, int width, int height)
-                    {
-                        String imageName = this.generatePNGImageName();
-                        return this.addPNG(data, imageName, width, height);
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNG(byte[] data, ResolutionProvider displayResolution)
-                    {
-                        return this.addPNG(data, displayResolution.getWidth(), displayResolution.getHeight());
-                    }
-
-                    private String generatePNGImageName()
-                    {
-                        return "Image" + ++this.addedPNGImageCounter;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNG(byte[] data, String imageName, int width, int height)
-                    {
-                        double paddingBefore = height;
-                        double paddingAfter = 6;
-                        this.addElementWithOffset(paddingBefore, paddingAfter, (rowOffset, columnOffset) ->
-                        {
-                            this.addPNG(data, imageName, rowOffset, columnOffset, width, height);
-                        });
-
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPageWithPNG(byte[] png, ResolutionProvider displayResolution)
-                    {
-                        return this.addBlankPage(displayResolution)
-                                   .addPNGAsBackground(png);
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNGAsBackground(byte[] data)
-                    {
-                        return this.addPNGAsBackground(data, this.generatePNGImageName());
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, ResolutionProvider displayResolution)
-                    {
-                        return this.addPNGAsBackground(data, this.generatePNGImageName(), displayResolution);
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, ResolutionProvider displayResolution)
-                    {
-                        int width = displayResolution.getWidth();
-                        int height = displayResolution.getHeight();
-                        return this.addPNGAsBackground(data, imageName, width, height);
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName)
-                    {
-                        PDRectangle box = this.page.getBBox();
-                        int width = (int) box.getWidth();
-                        int height = (int) box.getHeight();
-                        return this.addPNGAsBackground(data, imageName, width, height);
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, int width, int height)
-                    {
-                        return this.addPNG(data, imageName, 0, 0, width, height);
-                    }
-
-                    private PDFBuilderWithPage addPNG(byte[] data, String imageName, int rowOffset, int columnOffset, int width, int height)
-                    {
-                        try (PDPageContentStream contentStream = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true,
-                                                                                         true))
-                        {
-                            PDImageXObject imageObject = PDImageXObject.createFromByteArray(document, data, imageName);
-                            contentStream.drawImage(imageObject, columnOffset, rowOffset, width, height);
-                            contentStream.close();
-                        }
-                        catch (IOException e)
-                        {
-                            LOG.error("Exception defining text", e);
-                        }
-
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> builderConsumer)
-                    {
-                        int previousNumberOfColumns = this.numberOfColumns;
-                        this.numberOfColumns = numberOfColumns;
-
-                        builderConsumer.accept(this);
-
-                        this.numberOfColumns = previousNumberOfColumns;
-                        this.column = 0;
-                        return this;
-                    }
-
-                    private void addRawText(String text, int fontSize, int offset)
-                    {
-                        int columnOffset = this.determineColumnOffset();
-                        this.addRawText(text, fontSize, offset, columnOffset);
-                    }
-
-                    private void addRawText(String text, int fontSize, int rowOffset, int columnOffset)
-                    {
-                        PDFont font = PDType1Font.HELVETICA_BOLD;
-
-                        try (PDPageContentStream contents = new PDPageContentStream(document, this.page, PDPageContentStream.AppendMode.PREPEND, true, true))
-                        {
-                            contents.setLeading(1.5);
-                            contents.beginText();
-                            contents.setFont(font, fontSize);
-                            contents.newLineAtOffset(columnOffset, rowOffset);
-                            contents.showText(text);
-                            contents.endText();
-                        }
-                        catch (IOException e)
-                        {
-                            LOG.error("Exception defining text", e);
-                        }
-                    }
-
-                    private int determineColumnOffset()
-                    {
-                        return PAGE_WIDTH / 10 + (this.column * PAGE_WIDTH / this.numberOfColumns);
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addText(Iterable<String> texts)
-                    {
-                        if (texts != null)
-                        {
-                            texts.forEach(this::addText);
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addText(String... texts)
-                    {
-                        if (texts != null)
-                        {
-                            this.addText(Arrays.asList(texts));
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addText(TextSizeProvider textSize, Iterable<String> texts)
-                    {
-                        if (texts != null)
-                        {
-                            texts.forEach(text -> this.addText(textSize, text));
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addText(TextSizeProvider textSize, String... texts)
-                    {
-                        if (texts != null)
-                        {
-                            this.addText(textSize, Arrays.asList(texts));
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addBlankTextLine()
-                    {
-                        return this.addBlankTextLine(TextSize.NORMAL);
-
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addBlankTextLine(TextSizeProvider textSize)
-                    {
-                        return this.addText(textSize, "");
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addTitle(String title)
-                    {
-                        this.addText(title, 24, 3);
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addSubTitle(String subTitle)
-                    {
-                        this.addText(subTitle, 8, 6);
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addFooter(String footer)
-                    {
-                        int offset = 40 - this.footerOffset;
-                        int fontSize = 6;
-                        this.addRawText(footer, fontSize, offset);
-
-                        this.footerOffset += fontSize * 1.5;
-
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addFooter(String... footers)
-                    {
-                        if (footers != null)
-                        {
-                            for (String footer : footers)
-                            {
-                                this.addFooter(footer);
-                            }
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPagesOfFurtherPDF(byte[] pdf) throws InvalidPasswordException, IOException
-                    {
-                        PDDocument furtherDocument = PDDocument.load(pdf);
-
-                        furtherDocument.getPages()
-                                       .forEach(page ->
-                                       {
-                                           document.addPage(page);
-                                       });
-
-                        this.addedSourceDocuments.add(furtherDocument);
-
-                        return this.getLastPage();
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPagesOfFurtherPDFSilently(Collection<byte[]> pdfs)
-                    {
-                        if (pdfs != null)
-                        {
-                            pdfs.forEach(pdf -> this.addPagesOfFurtherPDFSilently(pdf));
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPagesOfFurtherPDFSilently(byte[] pdf)
-                    {
-                        SimpleExceptionHandler exceptionHandler = null;
-                        this.addPagesOfFurtherPDF(pdf, exceptionHandler);
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilderWithPage addPagesOfFurtherPDF(byte[] pdf, SimpleExceptionHandler exceptionHandler)
-                    {
-                        try
-                        {
-                            this.addPagesOfFurtherPDF(pdf);
-                        }
-                        catch (Exception e)
-                        {
-                            if (exceptionHandler != null)
-                            {
-                                exceptionHandler.handle(e);
-                            }
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilder processPages(PagesProcessor processor)
-                    {
-                        processor.process(IntStream.range(0, document.getNumberOfPages())
-
-                                                   .mapToObj(pageIndex -> this.getPage(pageIndex)));
-                        return this;
-                    }
-
-                    @Override
-                    public PDFBuilder forEachPage(PageProcessor processor)
-                    {
-                        return this.processPages((Stream<PDFBuilderWithPage> pages) -> pages.forEach(page -> processor.accept(page)));
-                    }
-
-                    @Override
-                    public <E> PDFBuilderWithPage withElements(Stream<E> elements, ElementProcessor<E> processor)
-                    {
-                        if (elements != null && processor != null)
-                        {
-                            elements.forEach(element -> processor.handle(this, element));
-                        }
-                        return this;
-                    }
-
-                    @Override
-                    public <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor)
-                    {
-                        return this.withElements(elements.stream(), processor);
-                    }
-
-                    @Override
-                    public <E> PDFBuilderWithPage withElements(Collection<E> elements, RawElementProcessor<E> processor)
-                    {
-                        return this.withElements(elements, (page, element) -> processor.handle(element));
-                    }
-
-                };
-            }
-        };
+        return new PDFLoaderImpl();
     }
 
     public static InputStream renderPDFToImage(InputStream inputStream)
