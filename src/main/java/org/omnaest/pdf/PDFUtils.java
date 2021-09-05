@@ -1,3 +1,18 @@
+/*******************************************************************************
+ * Copyright 2021 Danny Kunz
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License.  You may obtain a copy
+ * of the License at
+ * 
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations under
+ * the License.
+ ******************************************************************************/
 /*
 
 	Copyright 2017 Danny Kunz
@@ -18,6 +33,7 @@
 */
 package org.omnaest.pdf;
 
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -27,10 +43,17 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.DoublePredicate;
 import java.util.function.Function;
+import java.util.function.IntSupplier;
+import java.util.function.IntToDoubleFunction;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -48,8 +71,10 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.omnaest.utils.MapperUtils;
 import org.omnaest.utils.SimpleExceptionHandler;
 import org.omnaest.utils.StringUtils;
+import org.omnaest.utils.exception.handler.ExceptionHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,6 +100,8 @@ public class PDFUtils
         PDFBuilder loadPDFOrCreateEmpty(byte[] data);
 
         PDFBuilder loadPDF(File file) throws InvalidPasswordException, IOException;
+
+        PDFLoader useExceptionHandler(ExceptionHandler exceptionHandler);
 
     }
 
@@ -182,6 +209,14 @@ public class PDFUtils
     public static interface PDFBuilderWithPage extends PDFBuilder
     {
         /**
+         * Sets the {@link PdfFont}
+         * 
+         * @param pdfFont
+         * @return
+         */
+        PDFBuilderWithPage withFont(PdfFont pdfFont);
+
+        /**
          * Adds a text to the page
          * 
          * @param text
@@ -232,6 +267,8 @@ public class PDFUtils
          */
         PDFBuilderWithPage addText(TextSizeProvider textSize, String... texts);
 
+        PDFBuilderWithPage addText(Consumer<TextOptions> textOptionsConsumer, String... texts);
+
         /**
          * Similar to {@link #addBlankTextLine()} with {@link TextSize#NORMAL}
          * 
@@ -246,6 +283,17 @@ public class PDFUtils
          * @return
          */
         PDFBuilderWithPage addBlankTextLine(TextSizeProvider textSize);
+
+        PDFBuilderWithPage addBlankTextLines(TextSizeProvider textSize, int numberOfLines);
+
+        /**
+         * Jumps to the given line number assuming the given {@link TextSize}. This can also jump back and cause overlapping texts.
+         * 
+         * @param textSize
+         * @param lineNumber
+         * @return
+         */
+        PDFBuilderWithPage gotoLine(TextSizeProvider textSize, int lineNumber);
 
         PDFBuilderWithPage addTitle(String title);
 
@@ -281,7 +329,7 @@ public class PDFUtils
 
         <E> PDFBuilderWithPage withElements(Collection<E> elements, ElementProcessor<E> processor);
 
-        <E> PDFBuilderWithPage withElements(Collection<E> elements, RawElementProcessor<E> processor);
+        <E> PDFBuilderWithPage withRawElements(Collection<E> elements, RawElementProcessor<E> processor);
 
         PDFBuilderWithPage addPageBreakListener(Consumer<PDFBuilderWithPage> listener);
 
@@ -290,10 +338,29 @@ public class PDFUtils
          * changing the row.
          * 
          * @param numberOfColumns
-         * @param builderConsumer
+         * @param columnBuilderConsumer
          * @return
          */
-        PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> builderConsumer);
+        PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> columnBuilderConsumer);
+
+        /**
+         * Similar to {@link #withColumns(int, Consumer)} but allows to specify a column weight for its width
+         * 
+         * @param numberOfColumns
+         * @param columnWeightFunction
+         * @param columnBuilderConsumer
+         * @return
+         */
+        PDFBuilderWithPage withColumns(int numberOfColumns, IntToDoubleFunction columnWeightFunction, Consumer<PDFBuilderWithPage> columnBuilderConsumer);
+
+        /**
+         * Similar to {@link #withColumns(int, IntToDoubleFunction, Consumer)} but provides a {@link List} of column weights for each column one.
+         * 
+         * @param columnWeights
+         * @param columnBuilderConsumer
+         * @return
+         */
+        PDFBuilderWithPage withColumns(List<Double> columnWeights, Consumer<PDFBuilderWithPage> columnBuilderConsumer);
 
         /**
          * Adds a given PNG image at the current offset and moves the offset pointer
@@ -376,6 +443,29 @@ public class PDFUtils
          */
         PDFBuilderWithPage addPNGAsBackground(byte[] data, ResolutionProvider displayResolution);
 
+        /**
+         * Similar to {@link #addPNGAsBackground(byte[], String, int, int)} but allows to specify a left and top offset as ratio of the page
+         * 
+         * @param data
+         * @param imageName
+         * @param leftAsRatio
+         * @param topAsRatio
+         * @param width
+         * @param height
+         * @return
+         */
+        PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, double leftAsRatio, double topAsRatio, int width, int height);
+
+        /**
+         * Tests the left over page height compared to the full page height and if the given {@link Predicate} test returns true, the given {@link Consumer} is
+         * run.
+         * 
+         * @param ratioFilter
+         * @param pageConsumer
+         * @return
+         */
+        PDFBuilderWithPage ifWithRatioOfPageLeft(DoublePredicate ratioFilter, Consumer<PDFBuilderWithPage> pageConsumer);
+
     }
 
     public static interface PagesProcessor
@@ -424,6 +514,7 @@ public class PDFUtils
          * <br>
          * Resets the current cursor to the last page.
          * 
+         * @see #forEachPage(PageProcessor)
          * @param processor
          * @return
          */
@@ -434,6 +525,7 @@ public class PDFUtils
          * <br>
          * Resets the current cursor position
          * 
+         * @see #processPages(PagesProcessor)
          * @param processor
          * @return
          */
@@ -478,7 +570,8 @@ public class PDFUtils
 
     private static class PDFLoaderImpl implements PDFLoader
     {
-        private PDDocument document = null;
+        private PDDocument       document         = null;
+        private ExceptionHandler exceptionHandler = ExceptionHandler.rethrowingExceptionHandler();
 
         @Override
         public PDFBuilder loadPDF(byte[] data) throws InvalidPasswordException, IOException
@@ -531,16 +624,20 @@ public class PDFUtils
             {
                 private static final int PAGE_WIDTH = 540;
 
-                private PDPage page;
-                private int    rowOffset       = 0;
-                private int    footerOffset    = 0;
-                private int    column          = 0;
-                private int    numberOfColumns = 1;
+                private PDPage       page;
+                private int          rowOffset       = 0;
+                private int          footerOffset    = 0;
+                private int          column          = 0;
+                private IntSupplier  numberOfColumns = () -> this.columnWeights.size();
+                private List<Double> columnWeights   = Arrays.asList(1.0);
 
                 private List<PDDocument> addedSourceDocuments = new ArrayList<>();
                 private int              addedPNGImageCounter = 0;
 
                 private List<Consumer<PDFBuilderWithPage>> pageBreakListeners = new ArrayList<>();
+
+                private PdfFont   font      = PdfFont.HELVETICA_BOLD;
+                private TextColor textColor = TextColor.BLACK;;
 
                 @Override
                 public PDFBuilderWithPage addBlankPage()
@@ -570,9 +667,14 @@ public class PDFUtils
 
                 private void resetTextOffsets()
                 {
+                    this.resetTextLineOffsets();
+                    this.column = 0;
+                }
+
+                private void resetTextLineOffsets()
+                {
                     this.rowOffset = 760;
                     this.footerOffset = 0;
-                    this.column = 0;
                 }
 
                 @Override
@@ -732,11 +834,35 @@ public class PDFUtils
                     return this;
                 }
 
+                @Override
+                public PDFBuilderWithPage addText(Consumer<TextOptions> textOptionsConsumer, String... texts)
+                {
+                    TextOptions textOptions = new TextOptions();
+                    textOptionsConsumer.accept(textOptions);
+                    int fontSize = textOptions.getTextSizeProvider()
+                                              .orElse(TextSize.NORMAL)
+                                              .getSize();
+                    TextColor textColor = textOptions.getTextColor()
+                                                     .orElse(this.textColor);
+
+                    Optional.ofNullable(texts)
+                            .map(Arrays::asList)
+                            .orElse(Collections.emptyList())
+                            .forEach(text -> this.addText(text, fontSize, textColor, 0));
+
+                    return this;
+                }
+
                 private void addText(String text, int fontSize, double padding)
+                {
+                    this.addText(text, fontSize, this.textColor, padding);
+                }
+
+                private void addText(String text, int fontSize, TextColor textColor, double padding)
                 {
                     this.addElementWithOffset(fontSize, padding, (rowOffset, columnOffset) ->
                     {
-                        this.addRawText(text, fontSize, this.rowOffset, columnOffset);
+                        this.addRawText(text, fontSize, textColor, this.rowOffset, columnOffset);
                     });
 
                 }
@@ -752,7 +878,7 @@ public class PDFUtils
 
                     offsetConsumer.accept(this.rowOffset, columnOffset);
 
-                    boolean isLastColumn = this.column >= this.numberOfColumns - 1;
+                    boolean isLastColumn = this.column >= this.numberOfColumns.getAsInt() - 1;
                     if (isLastColumn)
                     {
                         this.rowOffset -= paddingAfter;
@@ -839,16 +965,29 @@ public class PDFUtils
                 @Override
                 public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName)
                 {
-                    PDRectangle box = this.page.getBBox();
-                    int width = (int) box.getWidth();
-                    int height = (int) box.getHeight();
-                    return this.addPNGAsBackground(data, imageName, width, height);
+                    if (data != null && data.length > 0)
+                    {
+                        PDRectangle box = this.page.getBBox();
+                        int width = (int) box.getWidth();
+                        int height = (int) box.getHeight();
+                        this.addPNGAsBackground(data, imageName, width, height);
+                    }
+
+                    return this;
                 }
 
                 @Override
                 public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, int width, int height)
                 {
                     return this.addPNG(data, imageName, 0, 0, width, height);
+                }
+
+                @Override
+                public PDFBuilderWithPage addPNGAsBackground(byte[] data, String imageName, double leftAsRatio, double topAsRatio, int width, int height)
+                {
+                    int rowOffset = (int) Math.round(-0.5 * height + (1.0 - topAsRatio) * this.determinePageHeight());
+                    int columnOffset = (int) Math.round(leftAsRatio * PAGE_WIDTH);
+                    return this.addPNG(data, imageName, rowOffset, columnOffset, width, height);
                 }
 
                 private PDFBuilderWithPage addPNG(byte[] data, String imageName, int rowOffset, int columnOffset, int width, int height)
@@ -869,47 +1008,81 @@ public class PDFUtils
                 }
 
                 @Override
-                public PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> builderConsumer)
+                public PDFBuilderWithPage withColumns(int numberOfColumns, Consumer<PDFBuilderWithPage> columnBuilderConsumer)
                 {
-                    int previousNumberOfColumns = this.numberOfColumns;
-                    this.numberOfColumns = numberOfColumns;
+                    return this.withColumns(numberOfColumns, column -> 1.0, columnBuilderConsumer);
+                }
 
-                    builderConsumer.accept(this);
+                @Override
+                public PDFBuilderWithPage withColumns(int numberOfColumns, IntToDoubleFunction columnWeightFunction,
+                                                      Consumer<PDFBuilderWithPage> columnBuilderConsumer)
+                {
+                    List<Double> previousColumnWeigths = this.columnWeights;
+                    this.columnWeights = IntStream.range(0, numberOfColumns)
+                                                  .mapToDouble(columnWeightFunction)
+                                                  .boxed()
+                                                  .collect(Collectors.toList());
 
-                    this.numberOfColumns = previousNumberOfColumns;
+                    columnBuilderConsumer.accept(this);
+
+                    this.columnWeights = previousColumnWeigths;
                     this.column = 0;
                     return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage withColumns(List<Double> columnWeights, Consumer<PDFBuilderWithPage> columnBuilderConsumer)
+                {
+                    return this.withColumns(columnWeights.size(), column -> columnWeights.get(column), columnBuilderConsumer);
                 }
 
                 private void addRawText(String text, int fontSize, int offset)
                 {
                     int columnOffset = this.determineColumnOffset();
-                    this.addRawText(text, fontSize, offset, columnOffset);
+                    this.addRawText(text, fontSize, this.textColor, offset, columnOffset);
                 }
 
-                private void addRawText(String text, int fontSize, int rowOffset, int columnOffset)
+                private void addRawText(String text, int fontSize, TextColor textColor, int rowOffset, int columnOffset)
                 {
-                    PDFont font = PDType1Font.HELVETICA_BOLD;
+                    PDFont effectiveFont = Optional.ofNullable(this.font)
+                                                   .map(PdfFont::getRawFont)
+                                                   .orElse(PDType1Font.HELVETICA_BOLD);
 
                     try (PDPageContentStream contents = new PDPageContentStream(PDFLoaderImpl.this.document, this.page, PDPageContentStream.AppendMode.PREPEND,
                                                                                 true, true))
                     {
                         contents.setLeading(1.5);
                         contents.beginText();
-                        contents.setFont(font, fontSize);
-                        contents.newLineAtOffset(columnOffset, rowOffset);
-                        contents.showText(text);
-                        contents.endText();
+                        try
+                        {
+                            contents.setNonStrokingColor(textColor.asAwtColor());
+                            contents.setFont(effectiveFont, fontSize);
+                            contents.newLineAtOffset(columnOffset, rowOffset);
+                            contents.showText(text);
+                        }
+                        finally
+                        {
+                            contents.endText();
+                        }
                     }
-                    catch (IOException e)
+                    catch (Exception e)
                     {
-                        LOG.error("Exception defining text", e);
+                        Optional.ofNullable(PDFLoaderImpl.this.exceptionHandler)
+                                .ifPresent(consumer -> consumer.accept(e));
                     }
                 }
 
                 private int determineColumnOffset()
                 {
-                    return PAGE_WIDTH / 10 + (this.column * PAGE_WIDTH / this.numberOfColumns);
+                    double allColumnWeigth = this.columnWeights.stream()
+                                                               .mapToDouble(MapperUtils.identitiyForDoubleAsUnboxed())
+                                                               .sum();
+                    double previousColumnsWeigth = this.columnWeights.stream()
+                                                                     .mapToDouble(MapperUtils.identitiyForDoubleAsUnboxed())
+                                                                     .limit(this.column)
+                                                                     .sum();
+                    double ratio = previousColumnsWeigth / allColumnWeigth;
+                    return PAGE_WIDTH / 10 + (int) Math.round(ratio * PAGE_WIDTH);
                 }
 
                 @Override
@@ -966,6 +1139,21 @@ public class PDFUtils
                 }
 
                 @Override
+                public PDFBuilderWithPage addBlankTextLines(TextSizeProvider textSize, int numberOfLines)
+                {
+                    IntStream.range(0, numberOfLines)
+                             .forEach(i -> this.addBlankTextLine(textSize));
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage gotoLine(TextSizeProvider textSize, int lineNumber)
+                {
+                    this.resetTextLineOffsets();
+                    return this.addBlankTextLines(textSize, lineNumber);
+                }
+
+                @Override
                 public PDFBuilderWithPage addTitle(String title)
                 {
                     this.addText(title, 24, 3);
@@ -1000,6 +1188,18 @@ public class PDFUtils
                         {
                             this.addFooter(footer);
                         }
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage ifWithRatioOfPageLeft(DoublePredicate ratioFilter, Consumer<PDFBuilderWithPage> pageConsumer)
+                {
+                    int pageHeight = this.determinePageHeight();
+                    double ratio = this.rowOffset / (1.0 * pageHeight);
+                    if (ratioFilter != null && pageConsumer != null && ratioFilter.test(ratio))
+                    {
+                        pageConsumer.accept(this);
                     }
                     return this;
                 }
@@ -1060,7 +1260,11 @@ public class PDFUtils
                 {
                     processor.process(IntStream.range(0, PDFLoaderImpl.this.document.getNumberOfPages())
 
-                                               .mapToObj(pageIndex -> this.getPage(pageIndex)));
+                                               .mapToObj(pageIndex ->
+                                               {
+                                                   this.resetTextOffsets();
+                                                   return this.getPage(pageIndex);
+                                               }));
                     return this;
                 }
 
@@ -1087,13 +1291,28 @@ public class PDFUtils
                 }
 
                 @Override
-                public <E> PDFBuilderWithPage withElements(Collection<E> elements, RawElementProcessor<E> processor)
+                public <E> PDFBuilderWithPage withRawElements(Collection<E> elements, RawElementProcessor<E> processor)
                 {
                     return this.withElements(elements, (page, element) -> processor.handle(element));
                 }
 
+                @Override
+                public PDFBuilderWithPage withFont(PdfFont pdfFont)
+                {
+                    this.font = pdfFont;
+                    return this;
+                }
+
             };
         }
+
+        @Override
+        public PDFLoader useExceptionHandler(ExceptionHandler exceptionHandler)
+        {
+            this.exceptionHandler = exceptionHandler;
+            return this;
+        }
+
     }
 
     public static PDFLoader getPDFInstance()
@@ -1145,5 +1364,89 @@ public class PDFUtils
         }
 
         return new ByteArrayInputStream(byteArrayOutputStream.toByteArray());
+    }
+
+    public static class TextOptions
+    {
+        private TextSizeProvider textSizeProvider;
+        private TextColor        textColor;
+
+        public Optional<TextSizeProvider> getTextSizeProvider()
+        {
+            return Optional.ofNullable(this.textSizeProvider);
+        }
+
+        public TextOptions withTextSize(TextSizeProvider textSize)
+        {
+            this.textSizeProvider = textSize;
+            return this;
+        }
+
+        public Optional<TextColor> getTextColor()
+        {
+            return Optional.ofNullable(this.textColor);
+        }
+
+        public TextOptions withTextColor(TextColor textColor)
+        {
+            this.textColor = textColor;
+            return this;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "TextOptions [textSizeProvider=" + this.textSizeProvider + ", textColor=" + this.textColor + "]";
+        }
+
+    }
+
+    public enum TextColor
+    {
+        BLACK(Color.BLACK), WHITE(Color.WHITE), RED(Color.RED), BLUE(Color.BLUE), MAGENTA(Color.MAGENTA), YELLOW(Color.YELLOW), GREEN(Color.GREEN);
+
+        private Color awtColor;
+
+        private TextColor(Color awtColor)
+        {
+            this.awtColor = awtColor;
+
+        }
+
+        public Color asAwtColor()
+        {
+            return this.awtColor;
+        }
+    }
+
+    public static enum PdfFont
+    {
+        TIMES_ROMAN(PDType1Font.TIMES_ROMAN),
+        TIMES_BOLD(PDType1Font.TIMES_BOLD),
+        TIMES_ITALIC(PDType1Font.TIMES_ITALIC),
+        TIMES_BOLD_ITALIC(PDType1Font.TIMES_BOLD_ITALIC),
+        HELVETICA(PDType1Font.HELVETICA),
+        HELVETICA_BOLD(PDType1Font.HELVETICA_BOLD),
+        HELVETICA_OBLIQUE(PDType1Font.HELVETICA_OBLIQUE),
+        HELVETICA_BOLD_OBLIQUE(PDType1Font.HELVETICA_BOLD_OBLIQUE),
+        COURIER(PDType1Font.COURIER),
+        COURIER_BOLD(PDType1Font.COURIER_BOLD),
+        COURIER_OBLIQUE(PDType1Font.COURIER_OBLIQUE),
+        COURIER_BOLD_OBLIQUE(PDType1Font.COURIER_BOLD_OBLIQUE),
+        SYMBOL(PDType1Font.SYMBOL),
+        ZAPF_DINGBATS(PDType1Font.ZAPF_DINGBATS);
+
+        private PDType1Font rawFont;
+
+        private PdfFont(PDType1Font rawFont)
+        {
+            this.rawFont = rawFont;
+        }
+
+        protected PDType1Font getRawFont()
+        {
+            return this.rawFont;
+        }
+
     }
 }
