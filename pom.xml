@@ -1,4 +1,5 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>org.omnaest.pdf</groupId>
@@ -30,21 +31,21 @@
 	</properties>
 
 	<dependencies>
-
-
-
-
 		<dependency>
 			<groupId>org.omnaest.utils</groupId>
 			<artifactId>CommonsLangAndIO</artifactId>
 			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
+            <groupId>org.omnaest.utils</groupId>
+            <artifactId>CommonsMarkdown</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+		<dependency>
 			<groupId>org.apache.pdfbox</groupId>
 			<artifactId>pdfbox</artifactId>
 			<version>2.0.19</version>
 		</dependency>
-
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcprov-jdk15</artifactId>
@@ -55,7 +56,6 @@
 			<artifactId>bcmail-jdk15</artifactId>
 			<version>1.44</version>
 		</dependency>
-
 		<dependency>
 			<groupId>org.omnaest.utils</groupId>
 			<artifactId>CommonsLog</artifactId>
@@ -68,5 +68,5 @@
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
-	
+
 </project>

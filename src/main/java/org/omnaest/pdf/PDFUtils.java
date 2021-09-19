@@ -53,6 +53,7 @@ import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.IntToDoubleFunction;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -75,6 +76,10 @@ import org.omnaest.utils.MapperUtils;
 import org.omnaest.utils.SimpleExceptionHandler;
 import org.omnaest.utils.StringUtils;
 import org.omnaest.utils.exception.handler.ExceptionHandler;
+import org.omnaest.utils.markdown.MarkdownUtils;
+import org.omnaest.utils.markdown.MarkdownUtils.Heading;
+import org.omnaest.utils.markdown.MarkdownUtils.Table;
+import org.omnaest.utils.markdown.MarkdownUtils.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -468,6 +473,18 @@ public class PDFUtils
 
     }
 
+    /**
+     * The {@link MarkdownInterpreter} is able to {@link #accept(String)} markdown text and adds pdf elements to the page.
+     * 
+     * @author omnaest
+     */
+    public static interface MarkdownInterpreter
+    {
+        public MarkdownInterpreter accept(String markdown);
+
+        public MarkdownInterpreter accept(Supplier<String> markdownProvider);
+    }
+
     public static interface PagesProcessor
     {
         public void process(Stream<PDFBuilderWithPage> pages);
@@ -508,6 +525,10 @@ public class PDFUtils
         PDFBuilderWithPage addPagesOfFurtherPDFSilently(Collection<byte[]> pdfs);
 
         PDFBuilderWithPage addPageWithPNG(byte[] png, ResolutionProvider displayResolution);
+
+        PDFBuilderWithPage addMarkdown(String markdown);
+
+        PDFBuilderWithPage withMarkdownInterpreter(Consumer<MarkdownInterpreter> interpreterConsumer);
 
         /**
          * Processes the given {@link Stream} of pages. <br>
@@ -1253,6 +1274,45 @@ public class PDFUtils
                         }
                     }
                     return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage withMarkdownInterpreter(Consumer<MarkdownInterpreter> interpreterConsumer)
+                {
+                    PDFBuilderWithPage builder = this;
+                    interpreterConsumer.accept(new MarkdownInterpreter()
+                    {
+                        @Override
+                        public MarkdownInterpreter accept(String markdown)
+                        {
+                            MarkdownUtils.parse(markdown, options -> options.enableWrapIntoParagraphs())
+                                         .newProcessor()
+                                         .addVisitor(Heading.class, heading -> builder.addBlankPage()
+                                                                                      .addTitle(heading.getText()))
+                                         .addVisitor(Text.class, text -> builder.addText(text.getValue()))
+                                         .addVisitor(Table.class, (table, control) -> builder.withColumns(table.getColumns()
+                                                                                                               .size(),
+                                                                                                          column ->
+                                                                                                          {
+                                                                                                              control.processChildrenNow();
+                                                                                                          }))
+                                         .process();
+                            return this;
+                        }
+
+                        @Override
+                        public MarkdownInterpreter accept(Supplier<String> markdownProvider)
+                        {
+                            return this.accept(markdownProvider.get());
+                        }
+                    });
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addMarkdown(String markdown)
+                {
+                    return this.withMarkdownInterpreter(interpreter -> interpreter.accept(markdown));
                 }
 
                 @Override

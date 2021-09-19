@@ -48,6 +48,8 @@ import org.omnaest.pdf.PDFUtils.TextSize;
 import org.omnaest.utils.FileUtils;
 import org.omnaest.utils.MatcherUtils;
 import org.omnaest.utils.StringUtils;
+import org.omnaest.utils.markdown.MarkdownUtils;
+import org.omnaest.utils.table.Table;
 
 public class PDFUtilsTest
 {
@@ -210,6 +212,23 @@ public class PDFUtilsTest
                                        lines));
 
         //        System.out.println(text);
+    }
+
+    @Test
+    public void testWithMarkdownInterpreter() throws Exception
+    {
+        PDFUtils.getPDFInstance()
+                .createEmptyPDF()
+                .withMarkdownInterpreter(interpreter -> interpreter.accept(MarkdownUtils.builder()
+                                                                                        .addHeading("Heading")
+                                                                                        .addText("Some text ...")
+                                                                                        .addTable(Table.newInstance()
+                                                                                                       .addColumnTitles("Column1", "Column2", "Column3")
+                                                                                                       .addRow("1:1", "1:2", "1:3")
+                                                                                                       .addRow("2:1", "2:2", "2:3"))
+                                                                                        .build()))
+                .build()
+                .writeTo(new File("C:/Temp/markdown_test.pdf"));
     }
 
 }
