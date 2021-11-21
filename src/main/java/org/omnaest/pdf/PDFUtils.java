@@ -44,7 +44,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -72,12 +74,14 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.omnaest.pdf.PDFUtils.LayoutBuilder.LayoutElement;
 import org.omnaest.utils.MapperUtils;
 import org.omnaest.utils.SimpleExceptionHandler;
 import org.omnaest.utils.StringUtils;
 import org.omnaest.utils.exception.handler.ExceptionHandler;
 import org.omnaest.utils.markdown.MarkdownUtils;
 import org.omnaest.utils.markdown.MarkdownUtils.Heading;
+import org.omnaest.utils.markdown.MarkdownUtils.Paragraph;
 import org.omnaest.utils.markdown.MarkdownUtils.Table;
 import org.omnaest.utils.markdown.MarkdownUtils.Text;
 import org.slf4j.Logger;
@@ -213,6 +217,9 @@ public class PDFUtils
 
     public static interface PDFBuilderWithPage extends PDFBuilder
     {
+        @Override
+        PDFBuilderWithPage withLayout(LayoutBuilderConsumer layoutScheme);
+
         /**
          * Sets the {@link PdfFont}
          * 
@@ -228,6 +235,12 @@ public class PDFUtils
          * @return
          */
         PDFBuilderWithPage addText(String text);
+
+        @Override
+        PDFBuilderWithPage withDefaultTextSize(TextSizeProvider textSize);
+
+        @Override
+        PDFBuilderWithPage withDefaultTextSize();
 
         /**
          * Adds a text with the given {@link TextSize} to the page
@@ -531,6 +544,21 @@ public class PDFUtils
         PDFBuilderWithPage withMarkdownInterpreter(Consumer<MarkdownInterpreter> interpreterConsumer);
 
         /**
+         * Defines the default {@link TextSize}. If not specified the default is {@link TextSize#NORMAL}.
+         * 
+         * @param textSize
+         * @return
+         */
+        PDFBuilder withDefaultTextSize(TextSizeProvider textSize);
+
+        /**
+         * Similar to {@link #withDefaultTextSize(TextSizeProvider)} setting the value to {@link TextSize#NORMAL}
+         * 
+         * @return
+         */
+        PDFBuilder withDefaultTextSize();
+
+        /**
          * Processes the given {@link Stream} of pages. <br>
          * <br>
          * Resets the current cursor to the last page.
@@ -551,6 +579,15 @@ public class PDFUtils
          * @return
          */
         PDFBuilder forEachPage(PageProcessor processor);
+
+        /**
+         * Defines a {@link LayoutScheme} or any custom layout using the {@link LayoutBuilder}
+         * 
+         * @see LayoutScheme
+         * @param layoutScheme
+         * @return
+         */
+        PDFBuilder withLayout(LayoutBuilderConsumer layoutScheme);
 
     }
 
@@ -657,8 +694,7 @@ public class PDFUtils
 
                 private List<Consumer<PDFBuilderWithPage>> pageBreakListeners = new ArrayList<>();
 
-                private PdfFont   font      = PdfFont.HELVETICA_BOLD;
-                private TextColor textColor = TextColor.BLACK;;
+                private LayoutManager layoutManager = new LayoutManager();
 
                 @Override
                 public PDFBuilderWithPage addBlankPage()
@@ -839,10 +875,22 @@ public class PDFUtils
                     });
                 }
 
+                /**
+                 * @see LayoutScheme
+                 * @param layoutScheme
+                 * @return
+                 */
+                @Override
+                public PDFBuilderWithPage withLayout(LayoutBuilderConsumer layoutScheme)
+                {
+                    layoutScheme.accept(this.layoutManager);
+                    return this;
+                }
+
                 @Override
                 public PDFBuilderWithPage addText(String text)
                 {
-                    return this.addText(TextSize.NORMAL, text);
+                    return this.addText(this.layoutManager.getTextSize(), text);
                 }
 
                 @Override
@@ -861,10 +909,10 @@ public class PDFUtils
                     TextOptions textOptions = new TextOptions();
                     textOptionsConsumer.accept(textOptions);
                     int fontSize = textOptions.getTextSizeProvider()
-                                              .orElse(TextSize.NORMAL)
+                                              .orElse(this.layoutManager.getTextSize())
                                               .getSize();
                     TextColor textColor = textOptions.getTextColor()
-                                                     .orElse(this.textColor);
+                                                     .orElse(this.layoutManager.getTextColor());
 
                     Optional.ofNullable(texts)
                             .map(Arrays::asList)
@@ -876,7 +924,7 @@ public class PDFUtils
 
                 private void addText(String text, int fontSize, double padding)
                 {
-                    this.addText(text, fontSize, this.textColor, padding);
+                    this.addText(text, fontSize, this.layoutManager.getTextColor(), padding);
                 }
 
                 private void addText(String text, int fontSize, TextColor textColor, double padding)
@@ -890,7 +938,7 @@ public class PDFUtils
 
                 private void addElementWithOffset(double paddingBefore, double paddingAfter, BiConsumer<Integer, Integer> offsetConsumer)
                 {
-                    int columnOffset = this.determineColumnOffset();
+                    int columnOffset = this.determineCurrentColumnOffset();
 
                     if (this.column == 0)
                     {
@@ -1044,7 +1092,7 @@ public class PDFUtils
                                                   .boxed()
                                                   .collect(Collectors.toList());
 
-                    columnBuilderConsumer.accept(this);
+                    this.layoutManager.applyLayoutFor(LayoutElement.COLUMNS, () -> columnBuilderConsumer.accept(this));
 
                     this.columnWeights = previousColumnWeigths;
                     this.column = 0;
@@ -1059,51 +1107,94 @@ public class PDFUtils
 
                 private void addRawText(String text, int fontSize, int offset)
                 {
-                    int columnOffset = this.determineColumnOffset();
-                    this.addRawText(text, fontSize, this.textColor, offset, columnOffset);
+                    int columnOffset = this.determineCurrentColumnOffset();
+                    this.addRawText(text, fontSize, this.layoutManager.getTextColor(), offset, columnOffset);
+                }
+
+                private void addRawContentsBackground(int fontSize, int rowOffset, int columnOffset, PDPageContentStream contents)
+                {
+                    this.layoutManager.getBackgroundColor()
+                                      .ifPresent(backgroundColor ->
+                                      {
+                                          try
+                                          {
+                                              contents.setNonStrokingColor(backgroundColor.asAwtColor());
+                                              contents.addRect(columnOffset, rowOffset - Math.round(fontSize * 0.1), this.determineCurrentColumnWidth(),
+                                                               Math.round(fontSize * 1.05));
+                                              contents.fill();
+                                          }
+                                          catch (Exception e)
+                                          {
+                                              Optional.ofNullable(PDFLoaderImpl.this.exceptionHandler)
+                                                      .ifPresent(consumer -> consumer.accept(e));
+                                          }
+                                      });
                 }
 
                 private void addRawText(String text, int fontSize, TextColor textColor, int rowOffset, int columnOffset)
                 {
-                    PDFont effectiveFont = Optional.ofNullable(this.font)
+                    PDFont effectiveFont = Optional.ofNullable(this.layoutManager.getTextFont())
                                                    .map(PdfFont::getRawFont)
                                                    .orElse(PDType1Font.HELVETICA_BOLD);
 
-                    try (PDPageContentStream contents = new PDPageContentStream(PDFLoaderImpl.this.document, this.page, PDPageContentStream.AppendMode.PREPEND,
-                                                                                true, true))
+                    if (this.page != null)
                     {
-                        contents.setLeading(1.5);
-                        contents.beginText();
-                        try
+                        try (PDPageContentStream contents = new PDPageContentStream(PDFLoaderImpl.this.document, this.page,
+                                                                                    PDPageContentStream.AppendMode.PREPEND, true, true))
                         {
-                            contents.setNonStrokingColor(textColor.asAwtColor());
-                            contents.setFont(effectiveFont, fontSize);
-                            contents.newLineAtOffset(columnOffset, rowOffset);
-                            contents.showText(text);
+                            this.addRawContentsBackground(fontSize, rowOffset, columnOffset, contents);
+
+                            contents.setLeading(1.5f);
+                            contents.beginText();
+                            try
+                            {
+                                contents.setNonStrokingColor(textColor.asAwtColor());
+                                contents.setFont(effectiveFont, fontSize);
+                                contents.newLineAtOffset(columnOffset, rowOffset);
+                                contents.showText(Optional.ofNullable(text)
+                                                          .orElse(""));
+                            }
+                            finally
+                            {
+                                contents.endText();
+                            }
                         }
-                        finally
+                        catch (Exception e)
                         {
-                            contents.endText();
+                            Optional.ofNullable(PDFLoaderImpl.this.exceptionHandler)
+                                    .ifPresent(consumer -> consumer.accept(e));
                         }
-                    }
-                    catch (Exception e)
-                    {
-                        Optional.ofNullable(PDFLoaderImpl.this.exceptionHandler)
-                                .ifPresent(consumer -> consumer.accept(e));
                     }
                 }
 
-                private int determineColumnOffset()
+                private int determineCurrentColumnOffset()
+                {
+                    int column = this.column;
+                    return this.determineColumnOffset(column);
+                }
+
+                private int determineNextColumnOffset()
+                {
+                    int column = this.column + 1;
+                    return this.determineColumnOffset(column);
+                }
+
+                private int determineColumnOffset(int column)
                 {
                     double allColumnWeigth = this.columnWeights.stream()
                                                                .mapToDouble(MapperUtils.identitiyForDoubleAsUnboxed())
                                                                .sum();
                     double previousColumnsWeigth = this.columnWeights.stream()
                                                                      .mapToDouble(MapperUtils.identitiyForDoubleAsUnboxed())
-                                                                     .limit(this.column)
+                                                                     .limit(column)
                                                                      .sum();
                     double ratio = previousColumnsWeigth / allColumnWeigth;
                     return PAGE_WIDTH / 10 + (int) Math.round(ratio * PAGE_WIDTH);
+                }
+
+                private int determineCurrentColumnWidth()
+                {
+                    return this.determineNextColumnOffset() - this.determineCurrentColumnOffset();
                 }
 
                 @Override
@@ -1177,7 +1268,7 @@ public class PDFUtils
                 @Override
                 public PDFBuilderWithPage addTitle(String title)
                 {
-                    this.addText(title, 24, 3);
+                    this.layoutManager.applyLayoutFor(LayoutElement.TITLE, () -> this.addText(title, 24, 3));
                     return this;
                 }
 
@@ -1280,32 +1371,7 @@ public class PDFUtils
                 public PDFBuilderWithPage withMarkdownInterpreter(Consumer<MarkdownInterpreter> interpreterConsumer)
                 {
                     PDFBuilderWithPage builder = this;
-                    interpreterConsumer.accept(new MarkdownInterpreter()
-                    {
-                        @Override
-                        public MarkdownInterpreter accept(String markdown)
-                        {
-                            MarkdownUtils.parse(markdown, options -> options.enableWrapIntoParagraphs())
-                                         .newProcessor()
-                                         .addVisitor(Heading.class, heading -> builder.addBlankPage()
-                                                                                      .addTitle(heading.getText()))
-                                         .addVisitor(Text.class, text -> builder.addText(text.getValue()))
-                                         .addVisitor(Table.class, (table, control) -> builder.withColumns(table.getColumns()
-                                                                                                               .size(),
-                                                                                                          column ->
-                                                                                                          {
-                                                                                                              control.processChildrenNow();
-                                                                                                          }))
-                                         .process();
-                            return this;
-                        }
-
-                        @Override
-                        public MarkdownInterpreter accept(Supplier<String> markdownProvider)
-                        {
-                            return this.accept(markdownProvider.get());
-                        }
-                    });
+                    interpreterConsumer.accept(new MarkdownInterpreterImpl(builder));
                     return this;
                 }
 
@@ -1359,8 +1425,21 @@ public class PDFUtils
                 @Override
                 public PDFBuilderWithPage withFont(PdfFont pdfFont)
                 {
-                    this.font = pdfFont;
+                    this.layoutManager.setFont(pdfFont);
                     return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage withDefaultTextSize(TextSizeProvider textSize)
+                {
+                    this.layoutManager.setDefaultTextSize(textSize);
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage withDefaultTextSize()
+                {
+                    return this.withDefaultTextSize(TextSize.NORMAL);
                 }
 
             };
@@ -1436,15 +1515,15 @@ public class PDFUtils
             return Optional.ofNullable(this.textSizeProvider);
         }
 
+        public Optional<TextColor> getTextColor()
+        {
+            return Optional.ofNullable(this.textColor);
+        }
+
         public TextOptions withTextSize(TextSizeProvider textSize)
         {
             this.textSizeProvider = textSize;
             return this;
-        }
-
-        public Optional<TextColor> getTextColor()
-        {
-            return Optional.ofNullable(this.textColor);
         }
 
         public TextOptions withTextColor(TextColor textColor)
@@ -1463,11 +1542,49 @@ public class PDFUtils
 
     public enum TextColor
     {
-        BLACK(Color.BLACK), WHITE(Color.WHITE), RED(Color.RED), BLUE(Color.BLUE), MAGENTA(Color.MAGENTA), YELLOW(Color.YELLOW), GREEN(Color.GREEN);
+        BLACK(Color.BLACK),
+        WHITE(Color.WHITE),
+        LIGHT_GRAY(Color.LIGHT_GRAY),
+        GRAY(Color.GRAY),
+        DARK_GRAY(Color.DARK_GRAY),
+        RED(Color.RED),
+        BLUE(Color.BLUE),
+        MAGENTA(Color.MAGENTA),
+        YELLOW(Color.YELLOW),
+        GREEN(Color.GREEN);
 
         private Color awtColor;
 
         private TextColor(Color awtColor)
+        {
+            this.awtColor = awtColor;
+
+        }
+
+        public Color asAwtColor()
+        {
+            return this.awtColor;
+        }
+    }
+
+    public enum BackgroundColor
+    {
+        BLACK(Color.BLACK),
+        WHITE(Color.WHITE),
+        LIGHT_GRAY(Color.LIGHT_GRAY),
+        EXTRA_LIGHT_GRAY(new Color(232, 232, 232)),
+        GRAY(Color.GRAY),
+        DARK_GRAY(Color.DARK_GRAY),
+        RED(Color.RED),
+        BLUE(Color.BLUE),
+        DARK_BLUE(new Color(0, 0, 155)),
+        MAGENTA(Color.MAGENTA),
+        YELLOW(Color.YELLOW),
+        GREEN(Color.GREEN);
+
+        private Color awtColor;
+
+        private BackgroundColor(Color awtColor)
         {
             this.awtColor = awtColor;
 
@@ -1506,6 +1623,198 @@ public class PDFUtils
         protected PDType1Font getRawFont()
         {
             return this.rawFont;
+        }
+
+    }
+
+    private static class MarkdownInterpreterImpl implements MarkdownInterpreter
+    {
+        private final PDFBuilderWithPage builder;
+
+        public MarkdownInterpreterImpl(PDFBuilderWithPage builder)
+        {
+            this.builder = builder;
+        }
+
+        @Override
+        public MarkdownInterpreter accept(String markdown)
+        {
+            MarkdownUtils.parse(markdown, options -> options.enableWrapIntoParagraphs())
+                         .newProcessor()
+                         .addVisitor(Heading.class, this.createHeadingInterpretation(this.builder))
+                         .addVisitor(Paragraph.class, (paragraph, control) ->
+                         {
+                             this.builder.addBlankTextLine(TextSize.SMALL);
+                             control.processChildrenNow();
+                             this.builder.addBlankTextLine(TextSize.SMALL);
+                         })
+                         .addVisitor(Text.class, text -> this.builder.addText(text.getValue()))
+                         .addVisitor(Table.class, (table, control) -> this.builder.withColumns(table.getColumns()
+                                                                                                    .size(),
+                                                                                               column ->
+                                                                                               {
+                                                                                                   control.processChildrenNow();
+                                                                                               }))
+                         //                         .addVisitor(LineBreak.class, text -> this.builder.addBlankTextLine())
+                         .process();
+            return this;
+        }
+
+        private Consumer<Heading> createHeadingInterpretation(PDFBuilderWithPage builder)
+        {
+            return heading ->
+            {
+                if (heading.getStrength() == 1)
+                {
+                    builder.addBlankPage()
+                           .addTitle(heading.getText())
+                           .withDefaultTextSize();
+                }
+                else if (heading.getStrength() == 2)
+                {
+                    builder.addSubTitle(heading.getText())
+                           .withDefaultTextSize();
+                }
+                else if (heading.getStrength() >= 3)
+                {
+                    int textSizeIndexCaption = IntStream.range(0, TextSize.values().length)
+                                                        .skip(heading.getStrength() - 3)
+                                                        .findFirst()
+                                                        .orElse(TextSize.values().length - 1);
+                    int textSizeIndexStandardText = IntStream.range(0, TextSize.values().length)
+                                                             .skip(textSizeIndexCaption + 1)
+                                                             .findFirst()
+                                                             .orElse(TextSize.values().length - 1);
+                    builder.addText(TextSize.values()[textSizeIndexCaption], heading.getText())
+                           .withDefaultTextSize(TextSize.values()[textSizeIndexStandardText]);
+                }
+            };
+        }
+
+        @Override
+        public MarkdownInterpreter accept(Supplier<String> markdownProvider)
+        {
+            return this.accept(markdownProvider.get());
+        }
+    }
+
+    public static interface LayoutBuilderConsumer extends Consumer<LayoutBuilder>
+    {
+
+    }
+
+    public static interface LayoutBuilder
+    {
+        public LayoutBuilder withElementBackgroundColor(LayoutElement layoutElement, BackgroundColor backgroundColor);
+
+        public LayoutBuilder withElementTextColor(LayoutElement layoutElement, TextColor textColor);
+
+        public static enum LayoutElement
+        {
+            TITLE, COLUMNS
+        }
+    }
+
+    private static class LayoutManager implements LayoutBuilder
+    {
+        private Map<LayoutElement, TextColor>       elementToTextColor       = new HashMap<>();
+        private Map<LayoutElement, BackgroundColor> elementToBackgroundColor = new HashMap<>();
+
+        private PdfFont                   font             = PdfFont.HELVETICA_BOLD;
+        private Optional<TextColor>       textColor        = Optional.empty();
+        private TextColor                 textColorDefault = TextColor.BLACK;
+        private Optional<BackgroundColor> backgroundColor  = Optional.empty();
+        private TextSizeProvider          defaultTextSize  = TextSize.NORMAL;
+
+        @Override
+        public LayoutBuilder withElementBackgroundColor(LayoutElement layoutElement, BackgroundColor backgroundColor)
+        {
+            this.elementToBackgroundColor.put(layoutElement, backgroundColor);
+            return this;
+        }
+
+        public LayoutManager setFont(PdfFont font)
+        {
+            this.font = font;
+            return this;
+        }
+
+        public LayoutManager setDefaultTextSize(TextSizeProvider textSize)
+        {
+            this.defaultTextSize = textSize;
+            return this;
+        }
+
+        public PdfFont getTextFont()
+        {
+            return this.font;
+        }
+
+        public Optional<BackgroundColor> getBackgroundColor()
+        {
+            return this.backgroundColor;
+        }
+
+        public TextSizeProvider getTextSize()
+        {
+            return this.defaultTextSize;
+        }
+
+        public void applyLayoutFor(LayoutElement layoutElement, Runnable operation)
+        {
+            Optional<TextColor> textColorPrevious = this.textColor;
+            Optional<BackgroundColor> backgroundColorPrevious = this.backgroundColor;
+
+            this.textColor = Optional.ofNullable(this.elementToTextColor.getOrDefault(layoutElement, this.getTextColor()));
+            this.backgroundColor = Optional.ofNullable(this.elementToBackgroundColor.getOrDefault(layoutElement, this.getBackgroundColor()
+                                                                                                                     .orElse(null)));
+            try
+            {
+                operation.run();
+            }
+            finally
+            {
+                this.textColor = textColorPrevious;
+                this.backgroundColor = backgroundColorPrevious;
+            }
+        }
+
+        @Override
+        public LayoutBuilder withElementTextColor(LayoutElement layoutElement, TextColor textColor)
+        {
+            this.elementToTextColor.put(layoutElement, textColor);
+            return this;
+        }
+
+        public TextColor getTextColor()
+        {
+            return this.textColor.orElse(this.textColorDefault);
+        }
+
+    }
+
+    public static enum LayoutScheme implements LayoutBuilderConsumer
+    {
+        PROFESSIONAL(layout -> layout.withElementBackgroundColor(LayoutElement.TITLE, BackgroundColor.DARK_GRAY)
+                                     .withElementTextColor(LayoutElement.TITLE, TextColor.WHITE)
+                                     .withElementBackgroundColor(LayoutElement.COLUMNS, BackgroundColor.EXTRA_LIGHT_GRAY));
+
+        private LayoutBuilderConsumer layoutBuilderConsumer;
+
+        private LayoutScheme(LayoutBuilderConsumer layoutBuilderConsumer)
+        {
+            this.layoutBuilderConsumer = layoutBuilderConsumer;
+        }
+
+        public LayoutBuilderConsumer getLayoutBuilderConsumer()
+        {
+            return this.layoutBuilderConsumer;
+        }
+
+        @Override
+        public void accept(LayoutBuilder layoutBuilder)
+        {
+            this.layoutBuilderConsumer.accept(layoutBuilder);
         }
 
     }

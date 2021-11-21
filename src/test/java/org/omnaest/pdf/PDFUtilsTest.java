@@ -215,6 +215,7 @@ public class PDFUtilsTest
     }
 
     @Test
+    @Ignore
     public void testWithMarkdownInterpreter() throws Exception
     {
         PDFUtils.getPDFInstance()
