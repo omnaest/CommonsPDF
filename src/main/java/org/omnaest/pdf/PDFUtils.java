@@ -581,6 +581,14 @@ public class PDFUtils
         PDFBuilder forEachPage(PageProcessor processor);
 
         /**
+         * Similar to {@link #forEachPage(PageProcessor)}
+         * 
+         * @param processor
+         * @return
+         */
+        PDFBuilder processEachPage(PageProcessor processor);
+
+        /**
          * Defines a {@link LayoutScheme} or any custom layout using the {@link LayoutBuilder}
          * 
          * @see LayoutScheme
@@ -1398,6 +1406,12 @@ public class PDFUtils
                 public PDFBuilder forEachPage(PageProcessor processor)
                 {
                     return this.processPages((Stream<PDFBuilderWithPage> pages) -> pages.forEach(page -> processor.accept(page)));
+                }
+
+                @Override
+                public PDFBuilder processEachPage(PageProcessor processor)
+                {
+                    return this.forEachPage(processor);
                 }
 
                 @Override
