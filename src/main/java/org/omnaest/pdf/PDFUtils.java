@@ -83,6 +83,7 @@ import org.omnaest.utils.markdown.MarkdownUtils;
 import org.omnaest.utils.markdown.MarkdownUtils.Heading;
 import org.omnaest.utils.markdown.MarkdownUtils.Paragraph;
 import org.omnaest.utils.markdown.MarkdownUtils.Table;
+import org.omnaest.utils.markdown.MarkdownUtils.Table.Cell;
 import org.omnaest.utils.markdown.MarkdownUtils.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -1663,12 +1664,29 @@ public class PDFUtils
                              this.builder.addBlankTextLine(TextSize.SMALL);
                          })
                          .addVisitor(Text.class, text -> this.builder.addText(text.getValue()))
-                         .addVisitor(Table.class, (table, control) -> this.builder.withColumns(table.getColumns()
-                                                                                                    .size(),
-                                                                                               column ->
-                                                                                               {
-                                                                                                   control.processChildrenNow();
-                                                                                               }))
+                         .addVisitor(Cell.class, text ->
+                         {
+                             if (text.getChildren()
+                                     .isEmpty())
+                             {
+                                 this.builder.addText("");
+                             }
+                         })
+                         .addVisitor(Table.class, (table, control) ->
+                         {
+                             List<Double> columnSizes = table.asStringTable()
+                                                             .getEffectiveColumns()
+                                                             .stream()
+                                                             .map(column -> column.getCells()
+                                                                                  .stream()
+                                                                                  .limit(1000)
+                                                                                  .map(org.omnaest.utils.table.domain.Cell::getValue)
+                                                                                  .mapToDouble(String::length)
+                                                                                  .max()
+                                                                                  .orElse(0))
+                                                             .collect(Collectors.toList());
+                             this.builder.withColumns(columnSizes, column -> control.processChildrenNow());
+                         })
                          //                         .addVisitor(LineBreak.class, text -> this.builder.addBlankTextLine())
                          .process();
             return this;
