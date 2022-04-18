@@ -1677,13 +1677,31 @@ public class PDFUtils
                              List<Double> columnSizes = table.asStringTable()
                                                              .getEffectiveColumns()
                                                              .stream()
-                                                             .map(column -> column.getCells()
-                                                                                  .stream()
-                                                                                  .limit(1000)
-                                                                                  .map(org.omnaest.utils.table.domain.Cell::getValue)
-                                                                                  .mapToDouble(String::length)
-                                                                                  .max()
-                                                                                  .orElse(0))
+                                                             .map(column ->
+                                                             {
+                                                                 double averageColumnSize = Stream.concat(Stream.of(column.getTitle()), column.getCells()
+                                                                                                                                              .stream()
+                                                                                                                                              .limit(1000)
+                                                                                                                                              .map(org.omnaest.utils.table.domain.Cell::getValue))
+                                                                                                  .map(org.apache.commons.lang3.StringUtils::defaultString)
+                                                                                                  .mapToDouble(String::length)
+                                                                                                  .average()
+                                                                                                  .orElse(0);
+                                                                 double maxColumnSize = Stream.concat(Stream.of(column.getTitle()), column.getCells()
+                                                                                                                                          .stream()
+                                                                                                                                          .limit(1000)
+                                                                                                                                          .map(org.omnaest.utils.table.domain.Cell::getValue))
+                                                                                              .map(org.apache.commons.lang3.StringUtils::defaultString)
+                                                                                              .mapToDouble(String::length)
+                                                                                              .max()
+                                                                                              .orElse(0);
+                                                                 double maxColumnTitleSize = Stream.of(column.getTitle())
+                                                                                                   .map(org.apache.commons.lang3.StringUtils::defaultString)
+                                                                                                   .mapToDouble(String::length)
+                                                                                                   .max()
+                                                                                                   .orElse(0);
+                                                                 return 2 * averageColumnSize + maxColumnSize + maxColumnTitleSize;
+                                                             })
                                                              .collect(Collectors.toList());
                              this.builder.withColumns(columnSizes, column -> control.processChildrenNow());
                          })
