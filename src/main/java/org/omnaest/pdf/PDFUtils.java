@@ -75,6 +75,7 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.omnaest.pdf.PDFUtils.LayoutBuilder.LayoutElement;
+import org.omnaest.utils.ConsumerUtils;
 import org.omnaest.utils.MapperUtils;
 import org.omnaest.utils.SimpleExceptionHandler;
 import org.omnaest.utils.StringUtils;
@@ -85,6 +86,7 @@ import org.omnaest.utils.markdown.MarkdownUtils.Paragraph;
 import org.omnaest.utils.markdown.MarkdownUtils.Table;
 import org.omnaest.utils.markdown.MarkdownUtils.Table.Cell;
 import org.omnaest.utils.markdown.MarkdownUtils.Text;
+import org.omnaest.utils.table.domain.Column;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -287,6 +289,10 @@ public class PDFUtils
         PDFBuilderWithPage addText(TextSizeProvider textSize, String... texts);
 
         PDFBuilderWithPage addText(Consumer<TextOptions> textOptionsConsumer, String... texts);
+
+        PDFBuilderWithPage addTable(Consumer<TextOptions> textOptionsConsumer, org.omnaest.utils.table.Table table);
+
+        PDFBuilderWithPage addTable(org.omnaest.utils.table.Table table);
 
         /**
          * Similar to {@link #addBlankTextLine()} with {@link TextSize#NORMAL}
@@ -983,6 +989,33 @@ public class PDFUtils
                 }
 
                 @Override
+                public PDFBuilderWithPage addTable(Consumer<TextOptions> textOptionsConsumer, org.omnaest.utils.table.Table table)
+                {
+                    if (table != null)
+                    {
+                        List<Column> effectiveColumns = table.getEffectiveColumns();
+                        List<String> effectiveColumnTitles = table.getEffectiveColumnTitles();
+                        List<Double> columnSizes = effectiveColumns.stream()
+                                                                   .map(createTableColumnSizeCalculator())
+                                                                   .collect(Collectors.toList());
+                        this.withColumns(columnSizes, column -> effectiveColumnTitles.forEach(columnTitle -> column.addText(textOptionsConsumer, columnTitle)));
+                        this.withColumns(columnSizes, column -> table.stream()
+                                                                     .forEach(row -> effectiveColumnTitles.forEach(columnTitle -> column.addText(textOptionsConsumer,
+                                                                                                                                                 row.getOptionalCell(columnTitle)
+                                                                                                                                                    .flatMap(org.omnaest.utils.table.domain.Cell::getOptionalValue)
+                                                                                                                                                    .orElse(null)))));
+
+                    }
+                    return this;
+                }
+
+                @Override
+                public PDFBuilderWithPage addTable(org.omnaest.utils.table.Table table)
+                {
+                    return this.addTable(ConsumerUtils.noOperation(), table);
+                }
+
+                @Override
                 public PDFBuilderWithPage addPNG(byte[] data, int width, int height)
                 {
                     String imageName = this.generatePNGImageName();
@@ -1520,6 +1553,35 @@ public class PDFUtils
         return new ByteArrayInputStream(byteArrayOutputStream.toByteArray());
     }
 
+    private static Function<Column, Double> createTableColumnSizeCalculator()
+    {
+        return column ->
+        {
+            double averageColumnSize = Stream.concat(Stream.of(column.getTitle()), column.getCells()
+                                                                                         .stream()
+                                                                                         .limit(1000)
+                                                                                         .map(org.omnaest.utils.table.domain.Cell::getValue))
+                                             .map(org.apache.commons.lang3.StringUtils::defaultString)
+                                             .mapToDouble(String::length)
+                                             .average()
+                                             .orElse(0);
+            double maxColumnSize = Stream.concat(Stream.of(column.getTitle()), column.getCells()
+                                                                                     .stream()
+                                                                                     .limit(1000)
+                                                                                     .map(org.omnaest.utils.table.domain.Cell::getValue))
+                                         .map(org.apache.commons.lang3.StringUtils::defaultString)
+                                         .mapToDouble(String::length)
+                                         .max()
+                                         .orElse(0);
+            double maxColumnTitleSize = Stream.of(column.getTitle())
+                                              .map(org.apache.commons.lang3.StringUtils::defaultString)
+                                              .mapToDouble(String::length)
+                                              .max()
+                                              .orElse(0);
+            return 2 * averageColumnSize + maxColumnSize + maxColumnTitleSize;
+        };
+    }
+
     public static class TextOptions
     {
         private TextSizeProvider textSizeProvider;
@@ -1677,35 +1739,10 @@ public class PDFUtils
                              List<Double> columnSizes = table.asStringTable()
                                                              .getEffectiveColumns()
                                                              .stream()
-                                                             .map(column ->
-                                                             {
-                                                                 double averageColumnSize = Stream.concat(Stream.of(column.getTitle()), column.getCells()
-                                                                                                                                              .stream()
-                                                                                                                                              .limit(1000)
-                                                                                                                                              .map(org.omnaest.utils.table.domain.Cell::getValue))
-                                                                                                  .map(org.apache.commons.lang3.StringUtils::defaultString)
-                                                                                                  .mapToDouble(String::length)
-                                                                                                  .average()
-                                                                                                  .orElse(0);
-                                                                 double maxColumnSize = Stream.concat(Stream.of(column.getTitle()), column.getCells()
-                                                                                                                                          .stream()
-                                                                                                                                          .limit(1000)
-                                                                                                                                          .map(org.omnaest.utils.table.domain.Cell::getValue))
-                                                                                              .map(org.apache.commons.lang3.StringUtils::defaultString)
-                                                                                              .mapToDouble(String::length)
-                                                                                              .max()
-                                                                                              .orElse(0);
-                                                                 double maxColumnTitleSize = Stream.of(column.getTitle())
-                                                                                                   .map(org.apache.commons.lang3.StringUtils::defaultString)
-                                                                                                   .mapToDouble(String::length)
-                                                                                                   .max()
-                                                                                                   .orElse(0);
-                                                                 return 2 * averageColumnSize + maxColumnSize + maxColumnTitleSize;
-                                                             })
+                                                             .map(createTableColumnSizeCalculator())
                                                              .collect(Collectors.toList());
                              this.builder.withColumns(columnSizes, column -> control.processChildrenNow());
                          })
-                         //                         .addVisitor(LineBreak.class, text -> this.builder.addBlankTextLine())
                          .process();
             return this;
         }
