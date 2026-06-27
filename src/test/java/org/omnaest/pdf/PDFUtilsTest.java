@@ -154,7 +154,7 @@ public class PDFUtilsTest
         String threshold = "([0-9\\.\\,]+)[^0-9]+([0-9\\.\\,]+)";
         String description = "[a-z\\,\\s]+";
         Pattern pattern = Pattern.compile("^(" + index + ")\\s+(" + name + ")\\s+(" + cas + ")\\s+(" + formula + ")\\s+(" + mass + ")\\s+" + threshold + "\\s+("
-                + description + ")");
+                                          + description + ")");
         Stream<String> lines = StringUtils.routeByMatch(tokens, "[0-9]+")
                                           .map(token -> token.collect(Collectors.joining("\t")))
                                           .peek(System.out::println)

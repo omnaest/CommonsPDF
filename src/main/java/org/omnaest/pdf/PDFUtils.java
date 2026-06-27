@@ -124,7 +124,7 @@ public class PDFUtils
 
     public enum TextSize implements TextSizeProvider
     {
-        LARGE(16), NORMAL(12), SMALL(8), VERY_SMALL(6), ULTRA_SMALL(4);
+        LARGE(16), NORMAL(12), SMALL(8), VERY_SMALL(6), ULTRA_SMALL(4), ULTRA_ULTRA_SMALL(3);
 
         private int size;
 
@@ -159,14 +159,7 @@ public class PDFUtils
      */
     public enum DisplayResolution implements ResolutionProvider
     {
-        _800x600(800, 600),
-        _800x300(800, 300),
-        _1440x900(1440, 900),
-        _1280x800(1280, 800),
-        _1280x1024(1280, 1024),
-        _800x1280(800, 1200),
-        _640x480(640, 480),
-        _320x240(320, 240);
+        _800x600(800, 600), _800x300(800, 300), _1440x900(1440, 900), _1280x800(1280, 800), _1280x1024(1280, 1024), _800x1280(800, 1200), _640x480(640, 480), _320x240(320, 240);
 
         private int width;
         private int height;
@@ -191,8 +184,7 @@ public class PDFUtils
 
         public static ResolutionProvider of(int width, int height)
         {
-            return new ResolutionProvider()
-            {
+            return new ResolutionProvider() {
                 @Override
                 public int getWidth()
                 {
@@ -693,23 +685,22 @@ public class PDFUtils
 
         private PDFBuilderWithPage newPDFBuilderWithPage()
         {
-            return new PDFBuilderWithPage()
-            {
-                private static final int PAGE_WIDTH = 540;
+            return new PDFBuilderWithPage() {
+                private static final int                   PAGE_WIDTH           = 540;
 
-                private PDPage       page;
-                private int          rowOffset       = 0;
-                private int          footerOffset    = 0;
-                private int          column          = 0;
-                private IntSupplier  numberOfColumns = () -> this.columnWeights.size();
-                private List<Double> columnWeights   = Arrays.asList(1.0);
+                private PDPage                             page;
+                private int                                rowOffset            = 0;
+                private int                                footerOffset         = 0;
+                private int                                column               = 0;
+                private IntSupplier                        numberOfColumns      = () -> this.columnWeights.size();
+                private List<Double>                       columnWeights        = Arrays.asList(1.0);
 
-                private List<PDDocument> addedSourceDocuments = new ArrayList<>();
-                private int              addedPNGImageCounter = 0;
+                private List<PDDocument>                   addedSourceDocuments = new ArrayList<>();
+                private int                                addedPNGImageCounter = 0;
 
-                private List<Consumer<PDFBuilderWithPage>> pageBreakListeners = new ArrayList<>();
+                private List<Consumer<PDFBuilderWithPage>> pageBreakListeners   = new ArrayList<>();
 
-                private LayoutManager layoutManager = new LayoutManager();
+                private LayoutManager                      layoutManager        = new LayoutManager();
 
                 @Override
                 public PDFBuilderWithPage addBlankPage()
@@ -772,7 +763,7 @@ public class PDFUtils
                     this.resetTextOffsets();
                     return this.getPage(PDFLoaderImpl.this.document.getPages()
                                                                    .getCount()
-                            - 1);
+                                        - 1);
                 }
 
                 private int determinePageHeight()
@@ -797,8 +788,7 @@ public class PDFUtils
 
                         byte[] data = outputStream.toByteArray();
                         ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
-                        retval = new PDFWriter()
-                        {
+                        retval = new PDFWriter() {
                             @Override
                             public InputStream get()
                             {
@@ -1125,8 +1115,7 @@ public class PDFUtils
                 }
 
                 @Override
-                public PDFBuilderWithPage withColumns(int numberOfColumns, IntToDoubleFunction columnWeightFunction,
-                                                      Consumer<PDFBuilderWithPage> columnBuilderConsumer)
+                public PDFBuilderWithPage withColumns(int numberOfColumns, IntToDoubleFunction columnWeightFunction, Consumer<PDFBuilderWithPage> columnBuilderConsumer)
                 {
                     List<Double> previousColumnWeigths = this.columnWeights;
                     this.columnWeights = IntStream.range(0, numberOfColumns)
@@ -1619,16 +1608,8 @@ public class PDFUtils
 
     public enum TextColor
     {
-        BLACK(Color.BLACK),
-        WHITE(Color.WHITE),
-        LIGHT_GRAY(Color.LIGHT_GRAY),
-        GRAY(Color.GRAY),
-        DARK_GRAY(Color.DARK_GRAY),
-        RED(Color.RED),
-        BLUE(Color.BLUE),
-        MAGENTA(Color.MAGENTA),
-        YELLOW(Color.YELLOW),
-        GREEN(Color.GREEN);
+        BLACK(Color.BLACK), WHITE(Color.WHITE), LIGHT_GRAY(Color.LIGHT_GRAY), GRAY(Color.GRAY), DARK_GRAY(Color.DARK_GRAY), RED(Color.RED), BLUE(Color.BLUE), MAGENTA(Color.MAGENTA), YELLOW(
+                Color.YELLOW), GREEN(Color.GREEN);
 
         private Color awtColor;
 
@@ -1646,18 +1627,8 @@ public class PDFUtils
 
     public enum BackgroundColor
     {
-        BLACK(Color.BLACK),
-        WHITE(Color.WHITE),
-        LIGHT_GRAY(Color.LIGHT_GRAY),
-        EXTRA_LIGHT_GRAY(new Color(232, 232, 232)),
-        GRAY(Color.GRAY),
-        DARK_GRAY(Color.DARK_GRAY),
-        RED(Color.RED),
-        BLUE(Color.BLUE),
-        DARK_BLUE(new Color(0, 0, 155)),
-        MAGENTA(Color.MAGENTA),
-        YELLOW(Color.YELLOW),
-        GREEN(Color.GREEN);
+        BLACK(Color.BLACK), WHITE(Color.WHITE), LIGHT_GRAY(Color.LIGHT_GRAY), EXTRA_LIGHT_GRAY(new Color(232, 232, 232)), GRAY(Color.GRAY), DARK_GRAY(Color.DARK_GRAY), RED(Color.RED), BLUE(
+                Color.BLUE), DARK_BLUE(new Color(0, 0, 155)), MAGENTA(Color.MAGENTA), YELLOW(Color.YELLOW), GREEN(Color.GREEN);
 
         private Color awtColor;
 
@@ -1675,20 +1646,10 @@ public class PDFUtils
 
     public static enum PdfFont
     {
-        TIMES_ROMAN(PDType1Font.TIMES_ROMAN),
-        TIMES_BOLD(PDType1Font.TIMES_BOLD),
-        TIMES_ITALIC(PDType1Font.TIMES_ITALIC),
-        TIMES_BOLD_ITALIC(PDType1Font.TIMES_BOLD_ITALIC),
-        HELVETICA(PDType1Font.HELVETICA),
-        HELVETICA_BOLD(PDType1Font.HELVETICA_BOLD),
-        HELVETICA_OBLIQUE(PDType1Font.HELVETICA_OBLIQUE),
-        HELVETICA_BOLD_OBLIQUE(PDType1Font.HELVETICA_BOLD_OBLIQUE),
-        COURIER(PDType1Font.COURIER),
-        COURIER_BOLD(PDType1Font.COURIER_BOLD),
-        COURIER_OBLIQUE(PDType1Font.COURIER_OBLIQUE),
-        COURIER_BOLD_OBLIQUE(PDType1Font.COURIER_BOLD_OBLIQUE),
-        SYMBOL(PDType1Font.SYMBOL),
-        ZAPF_DINGBATS(PDType1Font.ZAPF_DINGBATS);
+        TIMES_ROMAN(PDType1Font.TIMES_ROMAN), TIMES_BOLD(PDType1Font.TIMES_BOLD), TIMES_ITALIC(PDType1Font.TIMES_ITALIC), TIMES_BOLD_ITALIC(PDType1Font.TIMES_BOLD_ITALIC), HELVETICA(
+                PDType1Font.HELVETICA), HELVETICA_BOLD(PDType1Font.HELVETICA_BOLD), HELVETICA_OBLIQUE(PDType1Font.HELVETICA_OBLIQUE), HELVETICA_BOLD_OBLIQUE(
+                        PDType1Font.HELVETICA_BOLD_OBLIQUE), COURIER(PDType1Font.COURIER), COURIER_BOLD(PDType1Font.COURIER_BOLD), COURIER_OBLIQUE(
+                                PDType1Font.COURIER_OBLIQUE), COURIER_BOLD_OBLIQUE(PDType1Font.COURIER_BOLD_OBLIQUE), SYMBOL(PDType1Font.SYMBOL), ZAPF_DINGBATS(PDType1Font.ZAPF_DINGBATS);
 
         private PDType1Font rawFont;
 
@@ -1807,11 +1768,11 @@ public class PDFUtils
         private Map<LayoutElement, TextColor>       elementToTextColor       = new HashMap<>();
         private Map<LayoutElement, BackgroundColor> elementToBackgroundColor = new HashMap<>();
 
-        private PdfFont                   font             = PdfFont.HELVETICA_BOLD;
-        private Optional<TextColor>       textColor        = Optional.empty();
-        private TextColor                 textColorDefault = TextColor.BLACK;
-        private Optional<BackgroundColor> backgroundColor  = Optional.empty();
-        private TextSizeProvider          defaultTextSize  = TextSize.NORMAL;
+        private PdfFont                             font                     = PdfFont.HELVETICA_BOLD;
+        private Optional<TextColor>                 textColor                = Optional.empty();
+        private TextColor                           textColorDefault         = TextColor.BLACK;
+        private Optional<BackgroundColor>           backgroundColor          = Optional.empty();
+        private TextSizeProvider                    defaultTextSize          = TextSize.NORMAL;
 
         @Override
         public LayoutBuilder withElementBackgroundColor(LayoutElement layoutElement, BackgroundColor backgroundColor)
