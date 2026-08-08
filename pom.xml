@@ -40,17 +40,25 @@
 		<dependency>
 			<groupId>org.apache.pdfbox</groupId>
 			<artifactId>pdfbox</artifactId>
-			<version>2.0.19</version>
+			<version>2.0.37</version>
+		</dependency>
+		<!-- Bouncy Castle is declared optional by pdfbox and is only required for pdf documents using public key encryption.
+		     The artifact ids and version are the ones pdfbox itself declares. -->
+		<dependency>
+			<groupId>org.bouncycastle</groupId>
+			<artifactId>bcprov-jdk15to18</artifactId>
+			<version>1.84</version>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcprov-jdk15</artifactId>
-			<version>1.44</version>
+			<artifactId>bcpkix-jdk15to18</artifactId>
+			<version>1.84</version>
 		</dependency>
+		<!-- Appears in the public api of PDFUtils#addTable. -->
 		<dependency>
-			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcmail-jdk15</artifactId>
-			<version>1.44</version>
+			<groupId>org.omnaest.utils</groupId>
+			<artifactId>CommonsTable</artifactId>
+			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.omnaest.utils</groupId>
