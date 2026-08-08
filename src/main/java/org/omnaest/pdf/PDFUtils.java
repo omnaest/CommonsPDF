@@ -75,6 +75,8 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.omnaest.pdf.PDFUtils.LayoutBuilder.LayoutElement;
+import org.omnaest.utils.ByteArrayUtils;
+import org.omnaest.utils.ByteArrayUtils.ByteArrayContainer;
 import org.omnaest.utils.ConsumerUtils;
 import org.omnaest.utils.MapperUtils;
 import org.omnaest.utils.SimpleExceptionHandler;
@@ -509,6 +511,13 @@ public class PDFUtils
     public static interface PDFBuilder
     {
 
+        /**
+         * Renders the current document and returns a {@link PDFWriter} for it. The returned {@link PDFWriter} can be used multiple times.
+         *
+         * @throws IllegalStateException
+         *             if the document could not be rendered
+         * @return
+         */
         PDFWriter build();
 
         /**
@@ -626,6 +635,14 @@ public class PDFUtils
         InputStream get();
 
         byte[] getAsByteArray();
+
+        /**
+         * Returns the pdf content as {@link ByteArrayContainer}, which allows to access the raw data as {@link ByteArrayContainer#toByteArray()} or as a new
+         * {@link ByteArrayContainer#toInputStream()} for each call.
+         *
+         * @return
+         */
+        ByteArrayContainer getAsByteArrayContainer();
 
         Stream<String> getAsTextLines();
 
@@ -776,7 +793,6 @@ public class PDFUtils
                 @Override
                 public PDFWriter build()
                 {
-                    PDFWriter retval = null;
                     try
                     {
                         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -787,18 +803,23 @@ public class PDFUtils
                         this.closeFurtherDocuments();
 
                         byte[] data = outputStream.toByteArray();
-                        ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
-                        retval = new PDFWriter() {
+                        return new PDFWriter() {
                             @Override
                             public InputStream get()
                             {
-                                return inputStream;
+                                return new ByteArrayInputStream(data);
                             }
 
                             @Override
                             public byte[] getAsByteArray()
                             {
                                 return data;
+                            }
+
+                            @Override
+                            public ByteArrayContainer getAsByteArrayContainer()
+                            {
+                                return ByteArrayUtils.toByteArrayContainer(data);
                             }
 
                             @Override
@@ -810,14 +831,13 @@ public class PDFUtils
                             @Override
                             public String getAsText()
                             {
-                                try
+                                try (PDDocument pdDocument = PDDocument.load(data))
                                 {
                                     PDFTextStripper stripper = new PDFTextStripper();
                                     stripper.setAddMoreFormatting(false);
                                     //                                    stripper.setWordSeparator("\t");
                                     //                                        stripper.setSpacingTolerance(0.5f);
-                                    //                                        stripper.setSortByPosition(true);
-                                    PDDocument pdDocument = PDDocument.load(data);
+                                    stripper.setSortByPosition(true);
                                     pdDocument.setAllSecurityToBeRemoved(true);
 
                                     return stripper.getText(pdDocument);
@@ -831,7 +851,7 @@ public class PDFUtils
                             @Override
                             public void writeTo(File pdfFile) throws IOException
                             {
-                                FileUtils.copyInputStreamToFile(inputStream, pdfFile);
+                                FileUtils.copyInputStreamToFile(this.get(), pdfFile);
                             }
 
                             @Override
@@ -862,8 +882,8 @@ public class PDFUtils
                     catch (Exception e)
                     {
                         LOG.error("Exception during pdf creation", e);
+                        throw new IllegalStateException("Exception during pdf creation", e);
                     }
-                    return retval;
                 }
 
                 private void closeFurtherDocuments()
